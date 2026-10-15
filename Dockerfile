@@ -1,7 +1,7 @@
 # =========================================================
 # STAGE 1: Build the React Frontend
 # =========================================================
-FROM node:20-alpine AS build-frontend
+FROM node:24-alpine AS build-frontend
 WORKDIR /app/frontend
 
 # Copy package files first to leverage Docker layer caching
