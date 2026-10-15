@@ -1,0 +1,55 @@
+services:
+  chuck:
+    image: chuck:v1.0.3
+    container_name: chuck
+    ports:
+      - "8080:8080"
+    volumes:
+      # Maps a local folder to the container. 
+      # The right side MUST match ChuckSettings__DiskStoragePath!
+      - ./data/drops:/app/data/drops
+    environment:
+      # Forces .NET into Production mode
+      - ASPNETCORE_ENVIRONMENT=Production
+      
+      # ==========================================
+      # CHUCK SETTINGS OVERRIDES
+      # ==========================================
+      
+      # The absolute maximum size of a single drop (in bytes). 
+      # 524288000 = 500MB, 1073741824 = 1GB
+      - ChuckSettings__MaxPayloadSizeBytes=524288000
+      
+      # Where Chuck writes the temporary files inside the container.
+      - ChuckSettings__DiskStoragePath=/app/data/drops
+      
+      # Virus scanning via ClamAV container (set to false to disable)
+      - ChuckSettings__EnableVirusScanning=true
+      - ChuckSettings__ClamAvHost=clamav
+      - ChuckSettings__ClamAvPort=3310
+      
+      # Optional: Restrict instance access with one or more passcodes (comma-separated).
+      # When set, the UI locks and prompts for a passcode before allowing drops or catches.
+      # - ChuckSettings__InstancePasscodes=SecretKey123,FamilyKey456
+      
+      # --- Advanced RAM Tuning ---
+      # Uncomment to override these default thresholds.
+      # - ChuckSettings__RamThresholdBytes=51200
+      # - ChuckSettings__MaxRamCacheSizeBytes=104857600
+      
+    depends_on:
+      - clamav
+    restart: unless-stopped
+
+  clamav:
+    image: clamav/clamav:latest
+    container_name: chuck-clamav
+    restart: unless-stopped
+    volumes:
+      # ClamAV needs read access to the exact same drop path for zero-copy file scanning
+      - ./data/drops:/app/data/drops:ro
+      # Persist virus database definitions between restarts
+      - clamav-db:/var/lib/clamav
+
+volumes:
+  clamav-db:

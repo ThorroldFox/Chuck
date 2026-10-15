@@ -1,0 +1,35 @@
+services:
+  chuck:
+    image: chuck:v1.0.3
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: chuck-dev
+    ports:
+      - "8080:8080"
+    volumes:
+      # Maps local drops storage for inspecting files during dev
+      - ./data/drops:/app/data/drops
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ChuckSettings__MaxPayloadSizeBytes=524288000 # 500MB
+      - ChuckSettings__DiskStoragePath=/app/data/drops
+      # Virus scanning via ClamAV (set to false to disable)
+      - ChuckSettings__EnableVirusScanning=true
+      - ChuckSettings__ClamAvHost=clamav
+      - ChuckSettings__ClamAvPort=3310
+      # - ChuckSettings__InstancePasscodes=DevSecret123
+    depends_on:
+      - clamav
+    restart: unless-stopped
+
+  clamav:
+    image: clamav/clamav:latest
+    container_name: chuck-clamav-dev
+    restart: unless-stopped
+    volumes:
+      - ./data/drops:/app/data/drops:ro
+      - clamav-db-dev:/var/lib/clamav
+
+volumes:
+  clamav-db-dev:

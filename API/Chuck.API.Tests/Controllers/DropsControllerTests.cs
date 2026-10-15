@@ -1,0 +1,236 @@
+using Chuck.API.Controllers;
+using Chuck.API.Models;
+using Chuck.API.Models.Responses;
+using Chuck.API.Models.Results;
+using Chuck.API.Orchestrators;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
+using NSubstitute;
+
+namespace Chuck.API.Tests.Controllers;
+
+public class DropsControllerTests
+{
+	private readonly IDropsOrchestrator _orchestrator = Substitute.For<IDropsOrchestrator>();
+	private readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
+	private readonly DropsController _controller;
+
+	public DropsControllerTests()
+	{
+		_controller = new DropsController(_orchestrator, _cache);
+	}
+
+	[Fact]
+	public async Task CreateDrop_WhenOrchestratorFails_ReturnsBadRequestWithMessage()
+	{
+		// Arrange
+		var request = new DropRequest();
+		_orchestrator.ProcessUploadAsync(request)
+			.Returns(ProcessUploadResult.Failed("Payload cannot be completely empty."));
+
+		// Act
+		var result = await _controller.CreateDrop(request);
+
+		// Assert
+		var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(badRequest.Value);
+		Assert.Equal("Payload cannot be completely empty.", response.Message);
+	}
+
+	[Fact]
+	public async Task CreateDrop_WhenOrchestratorSucceeds_ReturnsCreatedWithHateoasLocationAndBody()
+	{
+		// Arrange
+		var request = new DropRequest { TextPayload = "Secret note" };
+		_orchestrator.ProcessUploadAsync(request)
+			.Returns(ProcessUploadResult.Succeeded("5678", "burn-token-abc", 10));
+
+		// Act
+		var result = await _controller.CreateDrop(request);
+
+		// Assert
+		var created = Assert.IsType<CreatedResult>(result);
+		Assert.Equal("/api/drops/5678", created.Location);
+
+		var response = Assert.IsType<CreateDropResponse>(created.Value);
+		Assert.Equal("5678", response.Pin);
+		Assert.Equal(10, response.ExpiresInMinutes);
+		Assert.Equal("burn-token-abc", response.BurnToken);
+	}
+
+	[Fact]
+	public void GetDropMetadata_WhenDropNotFound_ReturnsNotFound()
+	{
+		// Arrange
+		_orchestrator.GetDropSummary("9999")
+			.Returns(DropSummaryResult.Failed("Invalid PIN or payload has expired."));
+
+		// Act
+		var result = _controller.GetDropMetadata("9999");
+
+		// Assert
+		var notFound = Assert.IsType<NotFoundObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(notFound.Value);
+		Assert.Equal("Invalid PIN or payload has expired.", response.Message);
+	}
+
+	[Fact]
+	public void GetDropMetadata_WhenDropFound_ReturnsOkWithHateoasUrls()
+	{
+		// Arrange
+		var payload = new DropPayload
+		{
+			Pin = "1234",
+			TextPayload = "Decrypted text",
+			Files = new List<FileMetadata>
+			{
+				new()
+				{
+					Id = "file-guid-1",
+					OriginalName = "archive.tar",
+					SizeBytes = 1024,
+					ContentType = "application/x-tar"
+				}
+			}
+		};
+		_orchestrator.GetDropSummary("1234").Returns(DropSummaryResult.Succeeded(payload));
+
+		// Act
+		var result = _controller.GetDropMetadata("1234");
+
+		// Assert
+		var okResult = Assert.IsType<OkObjectResult>(result);
+		var response = Assert.IsType<DropMetadataResponse>(okResult.Value);
+		Assert.Equal("Decrypted text", response.Text);
+		Assert.Equal("/api/drops/1234/zip", response.ZipUrl);
+		Assert.Equal("/api/drops/1234", response.BurnUrl);
+
+		var file = Assert.Single(response.Files);
+		Assert.Equal("file-guid-1", file.Id);
+		Assert.Equal("archive.tar", file.OriginalName);
+		Assert.Equal("/api/drops/1234/files/file-guid-1", file.DownloadUrl);
+	}
+
+	[Fact]
+	public void DownloadFile_WhenNotFound_ReturnsNotFound()
+	{
+		// Arrange
+		_orchestrator.GetFileForDownload("1234", "bad-id")
+			.Returns(FileDownloadResult.Failed("File not found in this drop."));
+
+		// Act
+		var result = _controller.DownloadFile("1234", "bad-id");
+
+		// Assert
+		var notFound = Assert.IsType<NotFoundObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(notFound.Value);
+		Assert.Equal("File not found in this drop.", response.Message);
+	}
+
+	[Fact]
+	public void DownloadFile_WhenValid_ReturnsPhysicalFileResultWithRangeProcessing()
+	{
+		// Arrange
+		_orchestrator.GetFileForDownload("1234", "file-1")
+			.Returns(FileDownloadResult.Succeeded("C:\\drops\\file-1", "application/pdf", "document.pdf"));
+
+		// Act
+		var result = _controller.DownloadFile("1234", "file-1");
+
+		// Assert
+		var physicalFile = Assert.IsType<PhysicalFileResult>(result);
+		Assert.Equal("C:\\drops\\file-1", physicalFile.FileName);
+		Assert.Equal("application/pdf", physicalFile.ContentType);
+		Assert.Equal("document.pdf", physicalFile.FileDownloadName);
+		Assert.True(physicalFile.EnableRangeProcessing);
+	}
+
+	[Fact]
+	public void GetDownloadStatus_WhenTokenNotInCache_ReturnsNotFound()
+	{
+		// Act
+		var result = _controller.GetDownloadStatus("non-existent-token");
+
+		// Assert
+		Assert.IsType<NotFoundResult>(result);
+	}
+
+	[Fact]
+	public void GetDownloadStatus_WhenTokenInCache_ConsumesTokenAndReturnsOk()
+	{
+		// Arrange: Set token in cache
+		string token = "poll-token-123";
+		_cache.Set($"dl_status_{token}", "started", TimeSpan.FromMinutes(5));
+
+		// Act
+		var result = _controller.GetDownloadStatus(token);
+
+		// Assert
+		var okResult = Assert.IsType<OkObjectResult>(result);
+		var response = Assert.IsType<DownloadStatusResponse>(okResult.Value);
+		Assert.Equal("started", response.Status);
+
+		// Ensure token was consumed (one-time read)
+		Assert.False(_cache.TryGetValue($"dl_status_{token}", out _));
+	}
+
+	[Fact]
+	public void BurnFile_WhenFileNotFound_ReturnsNotFound()
+	{
+		// Arrange
+		_orchestrator.BurnFile("1111", "file-9").Returns(false);
+
+		// Act
+		var result = _controller.BurnFile("1111", "file-9");
+
+		// Assert
+		var notFound = Assert.IsType<NotFoundObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(notFound.Value);
+		Assert.Equal("File not found or already burnt.", response.Message);
+	}
+
+	[Fact]
+	public void BurnFile_WhenSuccessful_ReturnsOk()
+	{
+		// Arrange
+		_orchestrator.BurnFile("1111", "file-9").Returns(true);
+
+		// Act
+		var result = _controller.BurnFile("1111", "file-9");
+
+		// Assert
+		var okResult = Assert.IsType<OkObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(okResult.Value);
+		Assert.Equal("File successfully burnt.", response.Message);
+	}
+
+	[Fact]
+	public void DeleteDrop_WhenDropNotFoundOrTokenMismatch_ReturnsNotFound()
+	{
+		// Arrange
+		_orchestrator.CancelDrop("2222", "bad-token").Returns(false);
+
+		// Act
+		var result = _controller.DeleteDrop("2222", "bad-token");
+
+		// Assert
+		var notFound = Assert.IsType<NotFoundObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(notFound.Value);
+		Assert.Equal("Drop not found or invalid burn token.", response.Message);
+	}
+
+	[Fact]
+	public void DeleteDrop_WhenSuccessful_ReturnsOk()
+	{
+		// Arrange
+		_orchestrator.CancelDrop("2222", "valid-token").Returns(true);
+
+		// Act
+		var result = _controller.DeleteDrop("2222", "valid-token");
+
+		// Assert
+		var okResult = Assert.IsType<OkObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(okResult.Value);
+		Assert.Equal("Drop successfully burnt.", response.Message);
+	}
+}

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Chuck.API.Tests/Chuck.API.Tests.csproj" />
+  <Project Path="Chuck.API/Chuck.API.csproj" />
+</Solution>
