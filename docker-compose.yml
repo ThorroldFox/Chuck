@@ -1,6 +1,6 @@
 services:
   chuck:
-    image: chuck:v1.0.3
+    image: ghcr.io/thorroldfox/chuck:latest
     container_name: chuck
     ports:
       - "8080:8080"

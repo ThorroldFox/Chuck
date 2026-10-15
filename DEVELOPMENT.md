@@ -21,7 +21,7 @@ At build time, the React UI is compiled via Vite and copied directly into the AS
 
 ### Prerequisites
 * [.NET 10 SDK](https://dotnet.microsoft.com/)
-* [Node.js 20+](https://nodejs.org/) & `npm`
+* [Node.js 24+](https://nodejs.org/) & `npm`
 * [Docker Desktop](https://www.docker.com/products/docker-desktop/) (optional, for container testing)
 
 ---
@@ -117,6 +117,6 @@ docker build -t chuck:latest .
 ```
 
 Docker's multi-stage build will:
-1. Spin up a temporary `node:20-alpine` container to compile the React frontend.
+1. Spin up a temporary `node:24-alpine` container to compile the React frontend.
 2. Spin up a temporary `mcr.microsoft.com/dotnet/sdk:10.0` container to compile the backend and bundle the frontend into `wwwroot/`.
 3. Produce a standalone ~94 MB runtime container (`mcr.microsoft.com/dotnet/aspnet:10.0`).

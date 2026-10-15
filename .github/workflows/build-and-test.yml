@@ -3,8 +3,10 @@ name: Build & Test
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   # 1. Backend Verification (.NET 10 LTS)
@@ -53,14 +55,41 @@ jobs:
       - name: Build Production Bundle
         run: npm run build
 
-  # 3. Full-Stack Single-Container Build Verification
+  # 3. Full-Stack Single-Container Build & GHCR Publishing
   docker:
-    name: Container Build
+    name: Container Build & Publish
     runs-on: ubuntu-latest
     needs: [backend, frontend]
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Extract Release Version
+        id: meta
+        run: |
+          VERSION=$(node -p "require('./UI/Chuck.UI/package.json').version")
+          IMAGE_LC=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "image=${IMAGE_LC}" >> $GITHUB_OUTPUT
+
       - name: Build Docker Image
-        run: docker build -t chuck:latest .
+        run: |
+          docker build \
+            -t chuck:latest \
+            -t chuck:${{ steps.meta.outputs.version }} \
+            -t ${{ steps.meta.outputs.image }}:latest \
+            -t ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }} \
+            .
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push Image to GHCR
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push ${{ steps.meta.outputs.image }}:latest
+          docker push ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}

@@ -43,17 +43,21 @@ Chuck is not a cloud backup solution like Nextcloud or Google Drive; it is a cou
 
 Chuck requires only **Docker** and **Docker Compose** on your host. You do not need Node.js, npm, or the .NET SDK installed on your server.
 
-### 1. Requirements
-To deploy Chuck on your server, you only need two files:
-1. `docker-compose.yml`
-2. `chuck-v1.0.3.tar` (the standalone application image)
+### Option 1: Standard Deployment (GitHub Container Registry)
 
-### 2. Launching Chuck
-
-Transfer both files to a directory on your server, then run:
+Download [`docker-compose.yml`](docker-compose.yml) to a directory on your server and run:
 
 ```bash
-# 1. Load the Chuck image into Docker
+# Pulls ghcr.io/thorroldfox/chuck:latest and launches Chuck with ClamAV
+docker compose up -d
+```
+
+### Option 2: Offline / Air-Gapped Deployment (`.tar` Release Archive)
+
+For private homelabs or air-gapped servers without registry access, standalone container archives are attached to each [GitHub Release](https://github.com/ThorroldFox/Chuck/releases). Transfer `docker-compose.yml` and `chuck-v1.0.3.tar` to your server, then run:
+
+```bash
+# 1. Load the standalone Chuck image into Docker
 docker load -i chuck-v1.0.3.tar
 
 # 2. Launch Chuck and ClamAV in the background
@@ -74,7 +78,7 @@ Your production `docker-compose.yml` file:
 ```yaml
 services:
   chuck:
-    image: chuck:v1.0.3
+    image: ghcr.io/thorroldfox/chuck:latest
     container_name: chuck
     ports:
       - "8080:8080"
