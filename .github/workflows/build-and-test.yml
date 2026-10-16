@@ -55,13 +55,13 @@ jobs:
       - name: Build Production Bundle
         run: npm run build
 
-  # 3. Full-Stack Single-Container Build & GHCR Publishing
+  # 3. Full-Stack Single-Container Build, GHCR & Release Publishing
   docker:
     name: Container Build & Publish
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Checkout Code
@@ -93,3 +93,84 @@ jobs:
         run: |
           docker push ${{ steps.meta.outputs.image }}:latest
           docker push ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+
+      - name: Check if GitHub Release Exists
+        id: check_release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
+            echo "Release ${{ steps.meta.outputs.version }} already exists. Skipping release creation."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Release ${{ steps.meta.outputs.version }} does not exist yet. Preparing new release."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release & Attach Offline Archive
+        if: github.event_name != 'pull_request' && steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_TAG: ${{ steps.meta.outputs.version }}
+          IMAGE_NAME: ${{ steps.meta.outputs.image }}
+        run: |
+          TAR_FILE="chuck-${VERSION_TAG}.tar"
+          docker save -o "${TAR_FILE}" \
+            "${IMAGE_NAME}:${VERSION_TAG}" \
+            "${IMAGE_NAME}:latest" \
+            "chuck:${VERSION_TAG}" \
+            "chuck:latest"
+
+          node -e '
+            const fs = require("fs");
+            const ver = process.env.VERSION_TAG;
+            const img = process.env.IMAGE_NAME;
+            let title = `Chuck ${ver}`;
+            let notes = `Release ${ver} of Chuck.`;
+
+            if (fs.existsSync("CHANGELOG.md")) {
+              const content = fs.readFileSync("CHANGELOG.md", "utf8");
+              const escaped = ver.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const headerRegex = new RegExp(`^## \\[${escaped}\\] - ([^\\r\\n(]+)(?: \\([^)]+\\))?\\r?\\n([\\s\\S]*?)(?=^## \\[|$)`, "m");
+              const match = content.match(headerRegex);
+              if (match) {
+                const codename = match[1].trim();
+                title = `Chuck ${ver} – ${codename}`;
+                notes = match[2].trim();
+              }
+            }
+
+            const body = [
+              "### 🚀 What\x27s New",
+              "",
+              notes,
+              "",
+              "---",
+              "",
+              "### 📦 Deployment Options",
+              "",
+              "#### Option 1: GitHub Container Registry (Recommended)",
+              "Download `docker-compose.yml` and run:",
+              "```bash",
+              "docker compose up -d",
+              "```",
+              `Or pull the version-pinned image directly: \`docker pull ${img}:${ver}\``,
+              "",
+              "#### Option 2: Standalone Offline Archive (\`.tar\`)",
+              `Download \`chuck-${ver}.tar\` and \`docker-compose.yml\` from the assets below, then run:`,
+              "```bash",
+              `docker load -i chuck-${ver}.tar`,
+              "docker compose up -d",
+              "```"
+            ].join("\n") + "\n";
+
+            fs.writeFileSync("release_notes.md", body, "utf8");
+            fs.appendFileSync(process.env.GITHUB_ENV, `RELEASE_TITLE=${title}\n`);
+          '
+
+          gh release create "${VERSION_TAG}" \
+            "${TAR_FILE}" \
+            "docker-compose.yml" \
+            --title "${RELEASE_TITLE}" \
+            --notes-file release_notes.md
