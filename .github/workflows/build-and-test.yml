@@ -130,14 +130,19 @@ jobs:
             let notes = `Release ${ver} of Chuck.`;
 
             if (fs.existsSync("CHANGELOG.md")) {
-              const content = fs.readFileSync("CHANGELOG.md", "utf8");
-              const escaped = ver.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const headerRegex = new RegExp(`^## \\[${escaped}\\] - ([^\\r\\n(]+)(?: \\([^)]+\\))?\\r?\\n([\\s\\S]*?)(?=^## \\[|$)`, "m");
-              const match = content.match(headerRegex);
-              if (match) {
-                const codename = match[1].trim();
-                title = `Chuck ${ver} – ${codename}`;
-                notes = match[2].trim();
+              const lines = fs.readFileSync("CHANGELOG.md", "utf8").split(/\r?\n/);
+              const prefix = `## [${ver}] - `;
+              const startIdx = lines.findIndex(l => l.startsWith(prefix));
+              if (startIdx !== -1) {
+                const codename = lines[startIdx].slice(prefix.length).replace(/\s*\([^)]+\)\s*$/, "").trim();
+                if (codename) title = `Chuck ${ver} – ${codename}`;
+                const sectionLines = [];
+                for (let i = startIdx + 1; i < lines.length; i++) {
+                  if (lines[i].startsWith("## [")) break;
+                  sectionLines.push(lines[i]);
+                }
+                const extracted = sectionLines.join("\n").trim();
+                if (extracted) notes = extracted;
               }
             }
 
