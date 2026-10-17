@@ -153,4 +153,155 @@ describe("TransferHub", () => {
 			).toBeInTheDocument();
 		});
 	});
+
+	it("renders a scannable QR code and copies the Quick-Catch link after creating a drop", async () => {
+		const user = userEvent.setup();
+		const writeTextMock = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			value: { writeText: writeTextMock },
+			configurable: true,
+		});
+
+		const OriginalXHR = globalThis.XMLHttpRequest;
+		class MockXHR {
+			status = 200;
+			responseText = JSON.stringify({
+				pin: "4829",
+				burnToken: "token-123",
+			});
+			upload = { onprogress: null as any };
+			onload: (() => void) | null = null;
+			onerror: (() => void) | null = null;
+			open = vi.fn();
+			setRequestHeader = vi.fn();
+			send = vi.fn(() => {
+				if (this.onload) this.onload();
+			});
+		}
+		globalThis.XMLHttpRequest = MockXHR as any;
+
+		try {
+			render(<TransferHub />);
+
+			const memoInput = screen.getByPlaceholderText(/paste text here/i);
+			await user.type(memoInput, "Quick-Catch test payload");
+			await user.click(
+				screen.getByRole("button", { name: /chuck it/i }),
+			);
+
+			await waitFor(() => {
+				expect(screen.getByText("4829")).toBeInTheDocument();
+			});
+
+			const qrCode = screen.getByRole("img", {
+				name: /qr code for pin 4829/i,
+			});
+			expect(qrCode).toBeInTheDocument();
+
+			const copyLinkBtn = screen.getByRole("button", {
+				name: /copy quick-catch link/i,
+			});
+			await user.click(copyLinkBtn);
+
+			expect(writeTextMock).toHaveBeenCalledWith(
+				expect.stringContaining("?pin=4829"),
+			);
+			expect(
+				screen.getByRole("button", { name: /link copied!/i }),
+			).toBeInTheDocument();
+		} finally {
+			globalThis.XMLHttpRequest = OriginalXHR;
+		}
+	});
+
+	it("automatically switches to RETRIEVE and catches the drop when opened via a ?pin= Quick-Catch URL", async () => {
+		const mockFetch = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				pin: "7391",
+				text: "Caught via QR Quick-Catch link",
+				files: [],
+			}),
+		} as Response);
+		globalThis.fetch = mockFetch;
+
+		window.history.pushState({}, "", "/?pin=7391");
+
+		render(<TransferHub />);
+
+		await waitFor(() => {
+			expect(mockFetch).toHaveBeenCalledWith(
+				"/api/drops/7391",
+				expect.any(Object),
+			);
+			expect(screen.getByText("Payload Caught!")).toBeInTheDocument();
+			expect(
+				screen.getByText("Caught via QR Quick-Catch link"),
+			).toBeInTheDocument();
+		});
+
+		// Verify the ?pin= query parameter was cleaned from the URL bar
+		expect(window.location.search).toBe("");
+	});
+
+	it("waits until isUnlocked is true before auto-retrieving a ?pin= Quick-Catch URL", async () => {
+		const mockFetch = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				pin: "6420",
+				text: "Unlocked and caught",
+				files: [],
+			}),
+		} as Response);
+		globalThis.fetch = mockFetch;
+
+		window.history.pushState({}, "", "/?pin=6420");
+
+		const { rerender } = render(<TransferHub isUnlocked={false} />);
+
+		// Should switch to RETRIEVE and pre-fill PIN, but not fetch while locked
+		expect(screen.getByPlaceholderText("e.g. 1234")).toHaveValue("6420");
+		expect(mockFetch).not.toHaveBeenCalled();
+
+		// Unlocking triggers automatic retrieval
+		rerender(<TransferHub isUnlocked={true} />);
+
+		await waitFor(() => {
+			expect(mockFetch).toHaveBeenCalledWith(
+				"/api/drops/6420",
+				expect.any(Object),
+			);
+			expect(
+				screen.getByText("Unlocked and caught"),
+			).toBeInTheDocument();
+		});
+	});
+
+	it("extracts the 4-digit PIN rather than the port number when pasting a Quick-Catch URL from clipboard", async () => {
+		const user = userEvent.setup();
+		Object.defineProperty(navigator, "clipboard", {
+			value: {
+				readText: vi
+					.fn()
+					.mockResolvedValue("http://192.168.1.50:8080/?pin=9412"),
+			},
+			configurable: true,
+		});
+
+		render(<TransferHub />);
+
+		await user.click(screen.getByRole("tab", { name: /retrieve/i }));
+		const pasteButton = screen.getByRole("button", {
+			name: /paste pin from clipboard/i,
+		});
+		await user.click(pasteButton);
+
+		await waitFor(() => {
+			expect(screen.getByPlaceholderText("e.g. 1234")).toHaveValue(
+				"9412",
+			);
+		});
+	});
 });

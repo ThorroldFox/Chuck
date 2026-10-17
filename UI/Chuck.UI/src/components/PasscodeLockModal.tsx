@@ -56,6 +56,10 @@ export const PasscodeLockModal: React.FC<PasscodeLockModalProps> = ({
 				setError(null);
 			} else if (response.status === 401) {
 				setError("Incorrect passcode. Please try again.");
+			} else if (response.status === 429) {
+				setError(
+					"Too many attempts. Rate limit reached. Please wait a moment before trying again.",
+				);
 			} else {
 				setError("Failed to verify passcode. Please check your server connection.");
 			}

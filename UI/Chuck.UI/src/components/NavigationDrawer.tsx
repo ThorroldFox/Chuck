@@ -113,7 +113,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 									CHUCK
 								</Typography>
 								<Chip
-									label="v1.0.3"
+									label="v1.0.4"
 									size="small"
 									variant="outlined"
 									color="primary"
@@ -340,7 +340,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 						color="text.secondary"
 						sx={{ display: "block" }}
 					>
-						Chuck v1.0.3 • Swift Courier
+						Chuck v1.0.4 • Optical Courier
 					</Typography>
 					<Typography
 						variant="caption"
@@ -455,15 +455,16 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 									variant="subtitle2"
 									sx={{ fontWeight: "bold" }}
 								>
-									2. Share 4-Digit PIN
+									2. Share PIN or Scan QR
 								</Typography>
 								<Typography
 									variant="body2"
 									color="text.secondary"
 								>
-									Chuck generates a temporary 4-digit code.
-									Share this PIN with your recipient or enter
-									it on your destination device.
+									Chuck generates a temporary 4-digit PIN, a
+									scannable QR code, and a Quick-Catch link
+									for instant retrieval on your destination
+									device.
 								</Typography>
 							</Box>
 						</Box>

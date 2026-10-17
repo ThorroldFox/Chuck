@@ -16,6 +16,7 @@ import { TransferHub } from "./components/TransferHub";
 import { NavigationDrawer } from "./components/NavigationDrawer";
 import { PasscodeLockModal } from "./components/PasscodeLockModal";
 import { OfflineCard } from "./components/OfflineCard";
+import { RateLimitCard } from "./components/RateLimitCard";
 import { getStoredPasscode, clearStoredPasscode } from "./utils/passcodeUtils";
 
 const darkTheme = createTheme({
@@ -38,8 +39,10 @@ export default function App() {
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [isPasscodeProtected, setIsPasscodeProtected] = useState(false);
 	const [isUnlocked, setIsUnlocked] = useState(true);
+	const [isConfigLoaded, setIsConfigLoaded] = useState(false);
 	const [lockModalOpen, setLockModalOpen] = useState(false);
 	const [isServerUnreachable, setIsServerUnreachable] = useState(false);
+	const [isRateLimited, setIsRateLimited] = useState(false);
 	const [isRetrying, setIsRetrying] = useState(false);
 
 	const checkConnection = useCallback(async (isManualRetry = false) => {
@@ -48,11 +51,18 @@ export default function App() {
 		}
 		try {
 			const res = await fetch("/api/config");
+			if (res.status === 429) {
+				setIsRateLimited(true);
+				setIsServerUnreachable(false);
+				setLockModalOpen(false);
+				return;
+			}
 			if (!res.ok) {
 				throw new Error(`Server returned ${res.status}`);
 			}
 			const data = await res.json();
 			setIsServerUnreachable(false);
+			setIsRateLimited(false);
 
 			if (data && data.isPasscodeProtected) {
 				setIsPasscodeProtected(true);
@@ -70,9 +80,11 @@ export default function App() {
 				setLockModalOpen(false);
 			}
 		} catch {
+			setIsRateLimited(false);
 			setIsServerUnreachable(true);
 			setLockModalOpen(false);
 		} finally {
+			setIsConfigLoaded(true);
 			if (isManualRetry) {
 				setIsRetrying(false);
 			}
@@ -83,14 +95,14 @@ export default function App() {
 		checkConnection();
 	}, [checkConnection]);
 
-	// Auto-retry connection every 5 seconds if server is unreachable
+	// Auto-retry connection every 5 seconds if server is unreachable (do not poll when rate limited)
 	useEffect(() => {
-		if (!isServerUnreachable) return;
+		if (!isServerUnreachable || isRateLimited) return;
 		const interval = setInterval(() => {
 			checkConnection();
 		}, 5000);
 		return () => clearInterval(interval);
-	}, [isServerUnreachable, checkConnection]);
+	}, [isServerUnreachable, isRateLimited, checkConnection]);
 
 	const handleLockInstance = () => {
 		clearStoredPasscode();
@@ -195,13 +207,21 @@ export default function App() {
 					</Typography>
 				</Box>
 
-				{isServerUnreachable ? (
+				{isRateLimited ? (
+					<RateLimitCard
+						onRetry={() => checkConnection(true)}
+						isRetrying={isRetrying}
+					/>
+				) : isServerUnreachable ? (
 					<OfflineCard
 						onRetry={() => checkConnection(true)}
 						isRetrying={isRetrying}
 					/>
 				) : (
-					<TransferHub onUnauthorized={handleLockInstance} />
+					<TransferHub
+						onUnauthorized={handleLockInstance}
+						isUnlocked={isConfigLoaded && isUnlocked}
+					/>
 				)}
 			</Container>
 

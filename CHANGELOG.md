@@ -2,6 +2,15 @@
 
 All notable changes to **Chuck** are documented in this file.
 
+## [v1.0.4] - Optical Courier (17/10/2026)
+
+- Scannable QR Code Drop Retrieval: Added client-side SVG QR code generation to the PIN Success Card on the Drop tab, enabling camera-equipped mobile phones to instantly open and catch drops without manually typing a 4-digit PIN.
+- One-Click Quick-Catch Deep Links: Added a dedicated "Copy Quick-Catch Link" button to the PIN Success Card, generating deep links (/?pin=1234) that automatically switch to the Catch tab, pre-fill the PIN, and retrieve the payload while safely stripping the query parameter from the browser address bar.
+- Smart URL Clipboard Parsing: Enhanced the clipboard paste action on the PIN entry field to intelligently extract the 4-digit PIN from full Quick-Catch URLs without mistaking port numbers (e.g. :8080) for the PIN.
+- Instance Passcode Coordination: Quick-Catch links seamlessly respect instance access passcodes, safely deferring payload retrieval until the session is authenticated.
+- Dedicated Rate Limit Interface & Cooldown Handling: Introduced a dedicated "Too Many Requests" card with custom "Chuck Stop" artwork when an HTTP 429 occurs, clearly distinguishing rate limits from offline server states and stopping automatic retry loops from exhausting cooldown windows.
+- UI & Visual Polish: Updated branding and release metadata for the "Optical Courier" release across the navigation drawer and version chips.
+
 ## [v1.0.3] - Swift Courier (15/10/2026)
 
 - Instant Enter Key Drop Collection: Added Enter key submission support to the PIN entry field on the Catch tab with full IME composition safety, allowing users to instantly retrieve payloads upon typing their 4-digit PIN without needing to click "Catch It".

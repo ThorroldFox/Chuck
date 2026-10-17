@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
 	Box,
 	Typography,
@@ -26,7 +26,9 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ContentPasteIcon from "@mui/icons-material/ContentPaste";
 import DownloadIcon from "@mui/icons-material/Download";
 import DeleteIcon from "@mui/icons-material/Delete";
+import LinkIcon from "@mui/icons-material/Link";
 import LocalFireDepartmentIcon from "@mui/icons-material/LocalFireDepartment";
+import { QRCodeSVG } from "qrcode.react";
 import { formatBytes } from "../utils/formatUtils";
 import { getFileIcon } from "../utils/fileUtils";
 import { getStoredPasscode } from "../utils/passcodeUtils";
@@ -35,11 +37,23 @@ import { RetrievedFileRow } from "./RetrievedFileRow";
 const API_BASE_URL = "/api/drops";
 const MAX_FILE_SIZE_BYTES = 524288000; // 500MB
 
+const getQuickCatchUrl = (targetPin: string): string => {
+	const url = new URL(window.location.href);
+	url.search = "";
+	url.hash = "";
+	url.searchParams.set("pin", targetPin);
+	return url.toString();
+};
+
 export interface TransferHubProps {
 	onUnauthorized?: () => void;
+	isUnlocked?: boolean;
 }
 
-export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
+export function TransferHub({
+	onUnauthorized,
+	isUnlocked = true,
+}: TransferHubProps = {}) {
 	const [tabIndex, setTabIndex] = useState(0);
 
 	// DROP State
@@ -54,12 +68,14 @@ export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
 		null,
 	);
 	const [pinCopied, setPinCopied] = useState(false);
+	const [linkCopied, setLinkCopied] = useState(false);
 
 	// RETRIEVE State
 	const [pin, setPin] = useState("");
 	const [pinPasted, setPinPasted] = useState(false);
 	const [retrievedData, setRetrievedData] = useState<any>(null);
 	const [textCopied, setTextCopied] = useState(false);
+	const pendingUrlPinRef = useRef<string | null>(null);
 
 	// Shared State
 	const [isLoading, setIsLoading] = useState(false);
@@ -80,6 +96,8 @@ export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
 		setBurnToken(null);
 		setIsCancellingDrop(false);
 		setCancelSuccessMsg(null);
+		setPinCopied(false);
+		setLinkCopied(false);
 		setRetrievedData(null);
 		setDropText("");
 		setFiles([]);
@@ -154,6 +172,7 @@ export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
 		setError(null);
 		setUploadProgress(0);
 		setPinCopied(false);
+		setLinkCopied(false);
 
 		const formData = new FormData();
 		if (dropText.trim()) {
@@ -188,6 +207,14 @@ export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
 					} else {
 						if (xhr.status === 401) {
 							onUnauthorized?.();
+						}
+						if (xhr.status === 429) {
+							reject(
+								new Error(
+									"Rate limit reached. Chuck has received too many requests from your network. Please wait a moment before trying again.",
+								),
+							);
+							return;
 						}
 						let errorMsg = "Failed to communicate with Chuck.";
 						try {
@@ -237,6 +264,11 @@ export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
 				if (response.status === 401) {
 					onUnauthorized?.();
 				}
+				if (response.status === 429) {
+					throw new Error(
+						"Rate limit reached. Please wait a moment before trying again.",
+					);
+				}
 				const errData = await response.json().catch(() => null);
 				throw new Error(errData?.message || "Failed to cancel drop.");
 			}
@@ -261,8 +293,16 @@ export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
 			}
 			const text = await navigator.clipboard.readText();
 			const trimmed = text.trim();
-			const match = trimmed.match(/\b\d{4}\b/) || trimmed.match(/\d{4}/);
-			const digits = match ? match[0] : trimmed.replace(/\D/g, "").slice(0, 4);
+			const pinParamMatch = trimmed.match(/[?&]pin=(\d{4})\b/i);
+			const match =
+				pinParamMatch ||
+				trimmed.match(/\b\d{4}\b/) ||
+				trimmed.match(/\d{4}/);
+			const digits = pinParamMatch
+				? pinParamMatch[1]
+				: match
+					? match[0]
+					: trimmed.replace(/\D/g, "").slice(0, 4);
 
 			if (digits) {
 				setPin(digits);
@@ -279,43 +319,82 @@ export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
 		}
 	};
 
+	const retrieveDropByPin = useCallback(
+		async (targetPin: string) => {
+			if (targetPin.length !== 4) return;
+
+			setIsLoading(true);
+			setError(null);
+			setRetrievedData(null);
+			setTextCopied(false);
+			setIsZipDownloaded(false);
+			setIsBurningAll(false);
+
+			try {
+				const passcode = getStoredPasscode();
+				const headers: Record<string, string> = {};
+				if (passcode) {
+					headers["X-Instance-Passcode"] = passcode;
+				}
+				const response = await fetch(`${API_BASE_URL}/${targetPin}`, {
+					headers,
+				});
+				if (!response.ok) {
+					if (response.status === 401) {
+						pendingUrlPinRef.current = targetPin;
+						onUnauthorized?.();
+					}
+					if (response.status === 429) {
+						throw new Error(
+							"Rate limit reached. Chuck has received too many requests from your network. Please wait a moment before trying again.",
+						);
+					}
+					const errData = await response.json().catch(() => null);
+					throw new Error(
+						errData?.message || "Failed to retrieve payload.",
+					);
+				}
+				const data = await response.json();
+				setRetrievedData(data);
+				setPin("");
+			} catch (err: any) {
+				setError(err.message);
+			} finally {
+				setIsLoading(false);
+			}
+		},
+		[onUnauthorized],
+	);
+
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		const rawPin = params.get("pin")?.trim() ?? "";
+		if (/^\d{4}$/.test(rawPin)) {
+			pendingUrlPinRef.current = rawPin;
+			setTabIndex(1);
+			setPin(rawPin);
+
+			params.delete("pin");
+			const remainingSearch = params.toString();
+			const cleanUrl = `${window.location.pathname}${remainingSearch ? `?${remainingSearch}` : ""}${window.location.hash}`;
+			window.history.replaceState({}, "", cleanUrl);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (isUnlocked && pendingUrlPinRef.current) {
+			const targetPin = pendingUrlPinRef.current;
+			pendingUrlPinRef.current = null;
+			void retrieveDropByPin(targetPin);
+		}
+	}, [isUnlocked, retrieveDropByPin]);
+
 	const handleRetrieveSubmit = async (e?: React.FormEvent) => {
 		if (e) {
 			e.preventDefault();
 		}
 		if (pin.length !== 4 || isLoading) return;
-
-		setIsLoading(true);
-		setError(null);
-		setRetrievedData(null);
-		setTextCopied(false);
-		setIsZipDownloaded(false);
-		setIsBurningAll(false);
-
-		try {
-			const passcode = getStoredPasscode();
-			const headers: Record<string, string> = {};
-			if (passcode) {
-				headers["X-Instance-Passcode"] = passcode;
-			}
-			const response = await fetch(`${API_BASE_URL}/${pin}`, { headers });
-			if (!response.ok) {
-				if (response.status === 401) {
-					onUnauthorized?.();
-				}
-				const errData = await response.json().catch(() => null);
-				throw new Error(
-					errData?.message || "Failed to retrieve payload.",
-				);
-			}
-			const data = await response.json();
-			setRetrievedData(data);
-			setPin("");
-		} catch (err: any) {
-			setError(err.message);
-		} finally {
-			setIsLoading(false);
-		}
+		await retrieveDropByPin(pin);
 	};
 
 	const onFileBurnt = (burntId: string) => {
@@ -509,6 +588,71 @@ export function TransferHub({ onUnauthorized }: TransferHubProps = {}) {
 											)}
 										</IconButton>
 									</Tooltip>
+								</Box>
+								<Box
+									sx={{
+										display: "flex",
+										flexDirection: "column",
+										alignItems: "center",
+										mt: 2.5,
+										gap: 1.5,
+									}}
+								>
+									<Box
+										sx={{
+											p: 1.5,
+											bgcolor: "#ffffff",
+											borderRadius: 2,
+											display: "inline-flex",
+											boxShadow: 2,
+										}}
+									>
+										<QRCodeSVG
+											value={getQuickCatchUrl(
+												generatedPin,
+											)}
+											size={148}
+											level="M"
+											role="img"
+											aria-label={`QR code for PIN ${generatedPin}`}
+										/>
+									</Box>
+									<Typography
+										variant="caption"
+										color="text.secondary"
+										sx={{ maxWidth: 280 }}
+									>
+										Scan with your phone camera or copy the
+										Quick-Catch link for instant retrieval.
+									</Typography>
+									<Button
+										variant="outlined"
+										size="small"
+										color={
+											linkCopied ? "success" : "primary"
+										}
+										startIcon={
+											linkCopied ? (
+												<CheckIcon />
+											) : (
+												<LinkIcon />
+											)
+										}
+										onClick={async () => {
+											await navigator.clipboard.writeText(
+												getQuickCatchUrl(generatedPin),
+											);
+											setLinkCopied(true);
+											setTimeout(
+												() => setLinkCopied(false),
+												2000,
+											);
+										}}
+									>
+										{linkCopied
+											? "Link Copied!"
+											: "Copy Quick-Catch Link"}
+									</Button>
 								</Box>
 								<Box
 									sx={{
