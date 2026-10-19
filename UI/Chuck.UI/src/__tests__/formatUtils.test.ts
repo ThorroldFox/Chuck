@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatBytes } from "../utils/formatUtils";
+import { formatBytes, formatCountdown } from "../utils/formatUtils";
 
 describe("formatUtils", () => {
 	describe("formatBytes", () => {
@@ -35,4 +35,23 @@ describe("formatUtils", () => {
 			expect(formatBytes(1234567, 0)).toBe("1 MB");
 		});
 	});
+
+	describe("formatCountdown", () => {
+		it("clamps negative or zero values to '00:00'", () => {
+			expect(formatCountdown(0)).toBe("00:00");
+			expect(formatCountdown(-45)).toBe("00:00");
+		});
+
+		it("formats durations under 1 hour as MM:SS", () => {
+			expect(formatCountdown(5)).toBe("00:05");
+			expect(formatCountdown(582)).toBe("09:42");
+			expect(formatCountdown(1800)).toBe("30:00");
+		});
+
+		it("formats durations of 1 hour or more as Xh MMm SSs", () => {
+			expect(formatCountdown(3600)).toBe("1h 00m 00s");
+			expect(formatCountdown(86382)).toBe("23h 59m 42s");
+		});
+	});
 });
+

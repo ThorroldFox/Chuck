@@ -34,4 +34,12 @@ public class DropMetadataResponse
      * </summary>
      */
 	public string BurnUrl { get; set; } = string.Empty;
+
+	/**
+     * <summary>
+     * Exact UTC timestamp when the drop expires and becomes eligible for automatic eviction.
+     * </summary>
+     */
+	public DateTime ExpiresAt { get; set; }
 }
+

@@ -81,9 +81,7 @@ public class DropServiceTests : IDisposable
 		var (pin, burnToken) = await service.CreateDropAsync(request);
 
 		// Assert
-		Assert.NotNull(pin);
-		Assert.True(int.TryParse(pin, out int numericPin));
-		Assert.InRange(numericPin, 1000, 9999);
+		Assert.InRange(pin, 1000, 9999);
 		Assert.False(string.IsNullOrWhiteSpace(burnToken));
 
 		// Check RAM cache
@@ -104,25 +102,53 @@ public class DropServiceTests : IDisposable
 	}
 
 	[Fact]
-	public async Task CreateDropAsync_WhenVirusDetected_DeletesFileAndThrowsException()
+	public async Task CreateDropAsync_WithCustomExpiryMinutes_SetsRequestedTtlAndSidecarExpiry()
+	{
+		// Arrange
+		var service = CreateDropService();
+		var request = new DropRequest
+		{
+			TextPayload = "Extended 30-minute transfer",
+			ExpiryMinutes = 30
+		};
+
+		// Act
+		var (pin, _) = await service.CreateDropAsync(request);
+
+		// Assert
+		var drop = service.GetDrop(pin);
+		Assert.NotNull(drop);
+		Assert.Equal(_initialTime.UtcDateTime.AddMinutes(30), drop.ExpiresAt);
+	}
+
+	[Fact]
+	public async Task CreateDropAsync_WhenVirusDetectedInSecondFile_RollsBackFirstFileAndThrowsException()
 	{
 		// Arrange
 		var mockClam = Substitute.For<IClamClient>();
+		var cleanResult = new ClamScanResult("/path/clean.txt: OK");
 		var infectedResult = new ClamScanResult("/path/eicar.com: Eicar-Test-Signature FOUND");
-		mockClam.ScanFileOnServerAsync(Arg.Any<string>()).Returns(infectedResult);
+		mockClam.ScanFileOnServerAsync(Arg.Any<string>()).Returns(cleanResult, infectedResult);
 
 		var service = CreateDropService(mockClam);
 
-		var fileBytes = Encoding.UTF8.GetBytes("EICAR-STANDARD-ANTIVIRUS-TEST-FILE!");
-		using var stream = new MemoryStream(fileBytes);
-		var mockFile = new FormFile(stream, 0, fileBytes.Length, "file", "eicar.com")
+		var cleanBytes = Encoding.UTF8.GetBytes("Clean first file content");
+		using var cleanStream = new MemoryStream(cleanBytes);
+		var cleanFile = new FormFile(cleanStream, 0, cleanBytes.Length, "file1", "clean.txt")
+		{
+			Headers = new HeaderDictionary()
+		};
+
+		var infectedBytes = Encoding.UTF8.GetBytes("EICAR-STANDARD-ANTIVIRUS-TEST-FILE!");
+		using var infectedStream = new MemoryStream(infectedBytes);
+		var infectedFile = new FormFile(infectedStream, 0, infectedBytes.Length, "file2", "eicar.com")
 		{
 			Headers = new HeaderDictionary()
 		};
 
 		var request = new DropRequest
 		{
-			Files = new FormFileCollection { mockFile }
+			Files = new FormFileCollection { cleanFile, infectedFile }
 		};
 
 		// Act & Assert
@@ -130,9 +156,49 @@ public class DropServiceTests : IDisposable
 		Assert.Contains("Malware", ex.Message);
 		Assert.Contains("eicar.com", ex.Message);
 
-		// Verify no files remain in the isolated directory
+		// Verify neither the infected file nor the previously written clean file remain on disk
 		var files = Directory.GetFiles(_tempDirectory);
 		Assert.Empty(files);
+	}
+
+	[Fact]
+	public async Task CreateDropAsync_WithTraversalAndNewlinesInFileName_SanitisesOriginalName()
+	{
+		// Arrange
+		var service = CreateDropService();
+		var fileBytes = Encoding.UTF8.GetBytes("File content");
+		using var stream1 = new MemoryStream(fileBytes);
+		var craftedFile = new FormFile(stream1, 0, fileBytes.Length, "file1", "..\\..\\folder/evil\r\n\0name.txt")
+		{
+			Headers = new HeaderDictionary(),
+			ContentType = "invalid/mime; bad=\"unclosed"
+		};
+
+		using var stream2 = new MemoryStream(fileBytes);
+		var oversizedNameFile = new FormFile(stream2, 0, fileBytes.Length, "file2", $"{new string('a', 300)}.pdf")
+		{
+			Headers = new HeaderDictionary(),
+			ContentType = "application/pdf"
+		};
+
+		var request = new DropRequest
+		{
+			Files = new FormFileCollection { craftedFile, oversizedNameFile }
+		};
+
+		// Act
+		var (pin, _) = await service.CreateDropAsync(request);
+
+		// Assert
+		var drop = service.GetDrop(pin);
+		Assert.NotNull(drop);
+		Assert.Equal(2, drop.Files.Count);
+		Assert.Equal("evilname.txt", drop.Files[0].OriginalName);
+		Assert.Equal("application/octet-stream", drop.Files[0].ContentType);
+
+		Assert.Equal(255, drop.Files[1].OriginalName.Length);
+		Assert.EndsWith(".pdf", drop.Files[1].OriginalName);
+		Assert.Equal("application/pdf", drop.Files[1].ContentType);
 	}
 
 	[Fact]
@@ -213,7 +279,7 @@ public class DropServiceTests : IDisposable
 		var service = CreateDropService();
 
 		// 1. Expired drop (expired 10 minutes ago)
-		string expiredPin = "1111";
+		int expiredPin = 1111;
 		string expiredFileId = Guid.NewGuid().ToString();
 		string expiredFilePath = Path.Combine(_tempDirectory, expiredFileId);
 		File.WriteAllText(expiredFilePath, "expired binary content");
@@ -232,7 +298,7 @@ public class DropServiceTests : IDisposable
 		File.WriteAllText(service.GetMetaSidecarPath(expiredPin), JsonSerializer.Serialize(expiredPayload));
 
 		// 2. Valid active drop (expires in 8 minutes)
-		string activePin = "2222";
+		int activePin = 2222;
 		string activeFileId = Guid.NewGuid().ToString();
 		string activeFilePath = Path.Combine(_tempDirectory, activeFileId);
 		File.WriteAllText(activeFilePath, "active binary content");
@@ -274,5 +340,17 @@ public class DropServiceTests : IDisposable
 		Assert.Equal("Active text", rehydrated.TextPayload);
 		Assert.Single(rehydrated.Files);
 		Assert.Equal(activeFileId, rehydrated.Files[0].Id);
+	}
+
+	[Fact]
+	public void GetPhysicalFilePath_StripsPathTraversalSegments()
+	{
+		var service = CreateDropService();
+
+		string filePath = service.GetPhysicalFilePath("../../etc/passwd");
+		string sidecarPath = service.GetMetaSidecarPath(1234);
+
+		Assert.Equal(Path.Combine(_tempDirectory, "passwd"), filePath);
+		Assert.Equal(Path.Combine(_tempDirectory, "1234_meta.json"), sidecarPath);
 	}
 }

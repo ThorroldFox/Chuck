@@ -113,7 +113,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 									CHUCK
 								</Typography>
 								<Chip
-									label="v1.0.4"
+									label="v1.0.5"
 									size="small"
 									variant="outlined"
 									color="primary"
@@ -340,7 +340,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 						color="text.secondary"
 						sx={{ display: "block" }}
 					>
-						Chuck v1.0.4 • Optical Courier
+						Chuck v1.0.5 • Clockwork Courier
 					</Typography>
 					<Typography
 						variant="caption"
@@ -426,8 +426,10 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 									variant="body2"
 									color="text.secondary"
 								>
-									Choose files to upload (up to 500 MB) or
-									paste snippet text into the Drop tab.
+									Drag and drop files or folders (up to 500
+									MB), paste snippet text or clipboard images,
+									and choose an auto-burn window (5, 10, or
+									30 minutes).
 								</Typography>
 							</Box>
 						</Box>
@@ -649,10 +651,10 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 						</Typography>
 						<Typography variant="body2" color="text.secondary">
 							Chuck does not use SQL, Redis, or permanent metadata
-							databases. Transfer codes, expiration timers, and
-							text drops are stored strictly in volatile server
-							RAM. If the server restarts or loses power, all
-							active drops are destroyed immediately.
+							databases. Active drops live in volatile server RAM
+							backed by lightweight sidecars for reboot
+							resilience, and are permanently shredded the moment
+							they expire or are burnt.
 						</Typography>
 
 						<Typography

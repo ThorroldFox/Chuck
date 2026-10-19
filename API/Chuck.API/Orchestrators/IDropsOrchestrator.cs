@@ -22,33 +22,33 @@ public interface IDropsOrchestrator
 	 * Resolves drop metadata for recipient inspection.
 	 * </summary>
 	 */
-	DropSummaryResult GetDropSummary(string pin);
+	DropSummaryResult GetDropSummary(int pin);
 
 	/**
 	 * <summary>
 	 * Resolves an individual physical file for chunked HTTP range streaming.
 	 * </summary>
 	 */
-	FileDownloadResult GetFileForDownload(string pin, string fileId);
+	FileDownloadResult GetFileForDownload(int pin, string fileId);
 
 	/**
 	 * <summary>
 	 * Resolves all attached physical files for on-the-fly streaming ZIP archive packaging.
 	 * </summary>
 	 */
-	ZipDownloadResult GetFilesForZip(string pin);
+	ZipDownloadResult GetFilesForZip(int pin);
 
 	/**
 	 * <summary>
 	 * Requests immediate shredding of an individual attached file from an active drop.
 	 * </summary>
 	 */
-	bool BurnFile(string pin, string fileId);
+	bool BurnFile(int pin, string fileId);
 
 	/**
 	 * <summary>
 	 * Requests atomic cancellation or incineration of an entire drop.
 	 * </summary>
 	 */
-	bool CancelDrop(string pin, string? token);
+	bool CancelDrop(int pin, string? token);
 }

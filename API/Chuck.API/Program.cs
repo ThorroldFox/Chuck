@@ -10,19 +10,41 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
 	options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-	options.KnownNetworks.Clear();
+	options.KnownIPNetworks.Clear();
 	options.KnownProxies.Clear();
+
+	// Trust X-Forwarded-For strictly from loopback and standard private/container network ranges (RFC 1918 & IPv6 ULA)
+	// so Docker and LAN reverse proxies work out-of-the-box without allowing external public clients to spoof rate-limit IPs.
+	options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("127.0.0.0/8"));
+	options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("10.0.0.0/8"));
+	options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("172.16.0.0/12"));
+	options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("192.168.0.0/16"));
+	options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("::1/128"));
+	options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("fc00::/7"));
 });
 
 builder.Services.AddRateLimiter(options =>
 {
+	// Strict tier (20 req/min/IP) for brute-force-sensitive endpoints (PIN lookup, passcode verification, and drop creation)
 	options.AddPolicy("StrictPolicy", httpContext =>
 		RateLimitPartition.GetFixedWindowLimiter(
 			partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
 			factory: partition => new FixedWindowRateLimiterOptions
 			{
 				AutoReplenishment = true,
-				PermitLimit = 10,
+				PermitLimit = 20,
+				Window = TimeSpan.FromMinutes(1),
+				QueueLimit = 0
+			}));
+
+	// General tier (120 req/min/IP) for high-frequency operational endpoints (500ms ZIP status polling, config checks, and GUID-gated file actions)
+	options.AddPolicy("GeneralPolicy", httpContext =>
+		RateLimitPartition.GetFixedWindowLimiter(
+			partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+			factory: partition => new FixedWindowRateLimiterOptions
+			{
+				AutoReplenishment = true,
+				PermitLimit = 120,
 				Window = TimeSpan.FromMinutes(1),
 				QueueLimit = 0
 			}));
@@ -39,14 +61,16 @@ builder.Services.Configure<FormOptions>(options =>
 	options.MultipartBodyLengthLimit = maxPayloadSize;
 });
 
-// 2. Tell the Kestrel Web Server to allow larger overall HTTP request bodies globally
+// 2. Tell the Kestrel Web Server to allow larger overall HTTP request bodies globally and suppress Server fingerprinting header
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
+	serverOptions.AddServerHeader = false;
 	serverOptions.Limits.MaxRequestBodySize = maxPayloadSize;
 });
 
-// Unsure this is strictly needed?
-// builder.Services.AddCors();
+#if DEBUG
+builder.Services.AddCors();
+#endif
 
 // Add standard Web API Controllers
 builder.Services.AddControllers();
@@ -76,13 +100,21 @@ var dropService = app.Services.GetRequiredService<IDropService>();
 dropService.ExecuteBootSweep();
 
 app.UseForwardedHeaders();
+
+// Append baseline defensive HTTP security headers to all responses
+app.Use(async (context, next) =>
+{
+	context.Response.Headers.TryAdd("X-Content-Type-Options", "nosniff");
+	context.Response.Headers.TryAdd("X-Frame-Options", "DENY");
+	context.Response.Headers.TryAdd("Referrer-Policy", "no-referrer");
+	await next();
+});
+
 app.UseRateLimiter();
 app.UseHttpsRedirection();
 
 #if DEBUG
 app.UseCors(policy => policy.WithOrigins("http://localhost:5173").AllowAnyMethod().AllowAnyHeader());
-#else
-    app.UseCors();
 #endif
 
 // These are required for Docker containerisation.

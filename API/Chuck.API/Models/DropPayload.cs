@@ -12,7 +12,7 @@ public class DropPayload
      * The unique 4-digit numeric PIN used by recipients to retrieve the drop.
      * </summary>
      */
-	public string Pin { get; set; } = string.Empty;
+	public int Pin { get; set; }
 
 	/**
      * <summary>

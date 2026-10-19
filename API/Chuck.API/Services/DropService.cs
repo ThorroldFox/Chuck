@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Net.Http.Headers;
 using Chuck.API.Models;
 using nClam;
 
@@ -21,6 +23,9 @@ public class DropService : IDropService
 	private readonly int _clamAvPort;
 
 	private const int ExpiryMinutes = 10;
+	private const int MinExpiryMinutes = 1;
+	private const int MaxAnonymousExpiryMinutes = 30;
+	private const int MaxFileNameLength = 255;
 
 	public DropService(
 		IMemoryCache cache,
@@ -51,16 +56,14 @@ public class DropService : IDropService
 		}
 	}
 
-	public async Task<(string Pin, string BurnToken)> CreateDropAsync(DropRequest request)
+	public async Task<(int Pin, string BurnToken)> CreateDropAsync(DropRequest request)
 	{
-		string pin;
-		do
-		{
-			pin = RandomNumberGenerator.GetInt32(1000, 10000).ToString();
-		}
-		while (_cache.TryGetValue(pin, out _));
+		int pin = AllocateUniquePin();
 
 		var burnToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+		int expiryMinutes = request.ExpiryMinutes.HasValue
+			? Math.Clamp(request.ExpiryMinutes.Value, MinExpiryMinutes, MaxAnonymousExpiryMinutes)
+			: ExpiryMinutes;
 
 		var payload = new DropPayload
 		{
@@ -68,7 +71,7 @@ public class DropService : IDropService
 			BurnToken = burnToken,
 			TextPayload = request.TextPayload ?? string.Empty,
 			Files = new List<FileMetadata>(),
-			ExpiresAt = _timeProvider.GetUtcNow().UtcDateTime.AddMinutes(ExpiryMinutes)
+			ExpiresAt = _timeProvider.GetUtcNow().UtcDateTime.AddMinutes(expiryMinutes)
 		};
 
 		if (request.Files != null && request.Files.Count > 0)
@@ -76,73 +79,100 @@ public class DropService : IDropService
 			// Only initialise the ClamClient if scanning is enabled or a client was provided
 			IClamClient? clam = _clamClient ?? (_enableVirusScanning ? new ClamClient(_clamAvHost, _clamAvPort) : null);
 
-			foreach (var file in request.Files)
+			try
 			{
-				if (file.Length > 0)
+				foreach (var file in request.Files)
 				{
-					var fileId = Guid.NewGuid().ToString();
-					var filePath = Path.Combine(_diskStoragePath, fileId);
-
-					using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true))
+					if (file.Length > 0)
 					{
-						await file.CopyToAsync(stream);
-					}
+						var safeFileName = SanitiseFileName(file.FileName);
 
-					bool isFileSafe = true;
+						var fileId = Guid.NewGuid().ToString();
+						var filePath = Path.Combine(_diskStoragePath, fileId);
 
-					if ((_enableVirusScanning || _clamClient != null) && clam != null)
-					{
-						try
+						using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true))
 						{
-							var scanResult = await clam.ScanFileOnServerAsync(filePath);
+							await file.CopyToAsync(stream);
+						}
 
-							switch (scanResult.Result)
+						bool isFileSafe = true;
+
+						if ((_enableVirusScanning || _clamClient != null) && clam != null)
+						{
+							try
 							{
-								case ClamScanResults.Clean:
-									isFileSafe = true;
-									break;
+								var scanResult = await clam.ScanFileOnServerAsync(filePath);
 
-								case ClamScanResults.VirusDetected:
-									File.Delete(filePath);
-									var virusName = scanResult.InfectedFiles?.FirstOrDefault()?.VirusName ?? "Unknown Malware";
-									_logger.LogWarning("Malware blocked! {Virus} detected in {FileName}.", virusName, file.FileName);
-									throw new Exception($"Upload Rejected: Malware ({virusName}) detected in '{file.FileName}'.");
+								switch (scanResult.Result)
+								{
+									case ClamScanResults.Clean:
+										isFileSafe = true;
+										break;
 
-								case ClamScanResults.Error:
-									File.Delete(filePath);
-									_logger.LogError("ClamAV scan error: {RawResult}", scanResult.RawResult);
-									throw new Exception("File scanning service is currently unavailable. Upload aborted.");
+									case ClamScanResults.VirusDetected:
+										File.Delete(filePath);
+										var virusName = scanResult.InfectedFiles?.FirstOrDefault()?.VirusName ?? "Unknown Malware";
+										_logger.LogWarning("Malware blocked! {Virus} detected in {FileName}.", virusName, safeFileName);
+										throw new Exception($"Upload Rejected: Malware ({virusName}) detected in '{safeFileName}'.");
+
+									case ClamScanResults.Error:
+										File.Delete(filePath);
+										_logger.LogError("ClamAV scan error: {RawResult}", scanResult.RawResult);
+										throw new Exception("File scanning service is currently unavailable. Upload aborted.");
+								}
+							}
+							catch (Exception ex) when (!ex.Message.StartsWith("Upload Rejected:") && !ex.Message.StartsWith("File scanning service"))
+							{
+								File.Delete(filePath);
+								_logger.LogError(ex, "Failed to communicate with ClamAV service at {Host}:{Port}", _clamAvHost, _clamAvPort);
+								throw new Exception("File scanning service is currently unavailable. Upload aborted.");
 							}
 						}
-						catch (Exception ex) when (!ex.Message.StartsWith("Upload Rejected:") && !ex.Message.StartsWith("File scanning service"))
-						{
-							File.Delete(filePath);
-							_logger.LogError(ex, "Failed to communicate with ClamAV service at {Host}:{Port}", _clamAvHost, _clamAvPort);
-							throw new Exception("File scanning service is currently unavailable. Upload aborted.");
-						}
-					}
 
-					if (isFileSafe)
-					{
-						payload.Files.Add(new FileMetadata
+						if (isFileSafe)
 						{
-							Id = fileId,
-							OriginalName = file.FileName,
-							SizeBytes = file.Length,
-							ContentType = file.ContentType,
-							IsDownloaded = false
-						});
+							// Validate client-supplied Content-Type header to prevent malformed MIME types from
+							// throwing a FormatException when Kestrel constructs the download response header.
+							string safeContentType = !string.IsNullOrWhiteSpace(file.ContentType)
+								&& !file.ContentType.Contains('\r')
+								&& !file.ContentType.Contains('\n')
+								&& MediaTypeHeaderValue.TryParse(file.ContentType, out _)
+								? file.ContentType
+								: "application/octet-stream";
+
+							payload.Files.Add(new FileMetadata
+							{
+								Id = fileId,
+								OriginalName = safeFileName,
+								SizeBytes = file.Length,
+								ContentType = safeContentType,
+								IsDownloaded = false
+							});
+						}
 					}
 				}
 			}
+			catch
+			{
+				// Roll back any files from this batch that were already written to disk before the failure
+				foreach (var writtenFile in payload.Files)
+				{
+					string writtenPath = GetPhysicalFilePath(writtenFile.Id);
+					if (File.Exists(writtenPath))
+					{
+						try { File.Delete(writtenPath); } catch { /* Ignore */ }
+					}
+				}
+				throw;
+			}
 		}
 
-		SaveToCache(pin, payload, ExpiryMinutes);
+		SaveToCache(pin, payload, expiryMinutes);
 		WriteMetaSidecar(payload);
 		return (pin, burnToken);
 	}
 
-	public DropPayload? GetDrop(string pin)
+	public DropPayload? GetDrop(int pin)
 	{
 		if (_cache.TryGetValue(pin, out DropPayload? payload))
 		{
@@ -153,7 +183,7 @@ public class DropService : IDropService
 
 	public string GetPhysicalFilePath(string fileId)
 	{
-		return Path.Combine(_diskStoragePath, fileId);
+		return Path.Combine(_diskStoragePath, Path.GetFileName(fileId));
 	}
 
 	public bool PayloadFileExists(string fileId)
@@ -161,12 +191,12 @@ public class DropService : IDropService
 		return File.Exists(GetPhysicalFilePath(fileId));
 	}
 
-	public bool SidecarExists(string pin)
+	public bool SidecarExists(int pin)
 	{
 		return File.Exists(GetMetaSidecarPath(pin));
 	}
 
-	public void ExtendDropTtl(string pin)
+	public void ExtendDropTtl(int pin)
 	{
 		if (_cache.TryGetValue(pin, out DropPayload? payload) && payload != null)
 		{
@@ -178,7 +208,7 @@ public class DropService : IDropService
 		}
 	}
 
-	public bool DeleteFile(string pin, string fileId)
+	public bool DeleteFile(int pin, string fileId)
 	{
 		if (_cache.TryGetValue(pin, out DropPayload? payload) && payload != null)
 		{
@@ -212,7 +242,7 @@ public class DropService : IDropService
 		return false;
 	}
 
-	public bool DeleteDrop(string pin, string? token = null)
+	public bool DeleteDrop(int pin, string? token = null)
 	{
 		DropPayload? payload = null;
 		if (!_cache.TryGetValue(pin, out payload))
@@ -235,11 +265,16 @@ public class DropService : IDropService
 			return false;
 		}
 
-		// If a token was provided, verify it matches BurnToken
-		if (!string.IsNullOrEmpty(token) && !string.Equals(token, payload.BurnToken, StringComparison.Ordinal))
+		// If a token was provided, verify it matches BurnToken using constant-time comparison to prevent timing side-channels
+		if (!string.IsNullOrEmpty(token))
 		{
-			_logger.LogWarning("Unauthorised cancellation attempt for Drop {Pin}: token mismatch.", pin);
-			return false;
+			byte[] candidateBytes = Encoding.UTF8.GetBytes(token);
+			byte[] expectedBytes = Encoding.UTF8.GetBytes(payload.BurnToken);
+			if (!CryptographicOperations.FixedTimeEquals(candidateBytes, expectedBytes))
+			{
+				_logger.LogWarning("Unauthorised cancellation attempt for Drop {Pin}: token mismatch.", pin);
+				return false;
+			}
 		}
 
 		// Delete all physical files
@@ -285,7 +320,7 @@ public class DropService : IDropService
 
 				if (payload == null || payload.ExpiresAt <= nowUtc)
 				{
-					_logger.LogInformation("Boot Sweep: Purging expired drop {Pin}", payload?.Pin ?? Path.GetFileNameWithoutExtension(metaFile));
+					_logger.LogInformation("Boot Sweep: Purging expired drop {Pin}", payload?.Pin.ToString() ?? Path.GetFileNameWithoutExtension(metaFile));
 					PurgePayloadFilesAndSidecar(payload, metaFile);
 				}
 				else
@@ -349,7 +384,7 @@ public class DropService : IDropService
 		}
 	}
 
-	public string GetMetaSidecarPath(string pin)
+	public string GetMetaSidecarPath(int pin)
 	{
 		return Path.Combine(_diskStoragePath, $"{pin}_meta.json");
 	}
@@ -368,7 +403,7 @@ public class DropService : IDropService
 		}
 	}
 
-	private void DeleteMetaSidecar(string pin)
+	private void DeleteMetaSidecar(int pin)
 	{
 		try
 		{
@@ -384,7 +419,7 @@ public class DropService : IDropService
 		}
 	}
 
-	private void SaveToCache(string pin, DropPayload payload, TimeSpan ttl)
+	private void SaveToCache(int pin, DropPayload payload, TimeSpan ttl)
 	{
 		var cacheOptions = new MemoryCacheEntryOptions()
 			.SetAbsoluteExpiration(ttl);
@@ -415,8 +450,81 @@ public class DropService : IDropService
 		_cache.Set(pin, payload, cacheOptions);
 	}
 
-	private void SaveToCache(string pin, DropPayload payload, int minutesAlive)
+	private void SaveToCache(int pin, DropPayload payload, int minutesAlive)
 	{
 		SaveToCache(pin, payload, TimeSpan.FromMinutes(minutesAlive));
+	}
+
+	private int AllocateUniquePin()
+	{
+		// Fast path: attempt up to 100 cryptographically random picks across the 9,000-PIN space (1000-9999)
+		for (int attempt = 0; attempt < 100; attempt++)
+		{
+			int candidate = RandomNumberGenerator.GetInt32(1000, 10000);
+			if (!_cache.TryGetValue(candidate, out _))
+			{
+				return candidate;
+			}
+		}
+
+		// Bounded fallback: scan linearly from a random start index to prevent an infinite CPU spin-loop if the pool is nearly full
+		int startOffset = RandomNumberGenerator.GetInt32(0, 9000);
+		for (int i = 0; i < 9000; i++)
+		{
+			int candidate = 1000 + ((startOffset + i) % 9000);
+			if (!_cache.TryGetValue(candidate, out _))
+			{
+				return candidate;
+			}
+		}
+
+		throw new InvalidOperationException("Maximum active drop capacity reached. Please try again shortly.");
+	}
+
+	private static string SanitiseFileName(string? rawFileName)
+	{
+		if (string.IsNullOrWhiteSpace(rawFileName))
+		{
+			return "unnamed-file";
+		}
+
+		// Normalise backslashes to forward slashes before calling Path.GetFileName so Windows-style traversal
+		// sequences (e.g. "..\..\evil.exe") are stripped even when running inside a Linux Docker container,
+		// preventing cross-platform Zip Slip on archive extraction.
+		string fileNameOnly = Path.GetFileName(rawFileName.Replace('\\', '/'));
+
+		// Strip ASCII control characters (including CR, LF, and null bytes) to prevent HTTP Content-Disposition
+		// header splitting, null-byte truncation, and log forging.
+		var sb = new StringBuilder(fileNameOnly.Length);
+		foreach (char c in fileNameOnly)
+		{
+			if (!char.IsControl(c))
+			{
+				sb.Append(c);
+			}
+		}
+
+		string cleaned = sb.ToString().Trim();
+		if (string.IsNullOrWhiteSpace(cleaned) || cleaned is "." or "..")
+		{
+			return "unnamed-file";
+		}
+
+		// Cap filename length at 255 characters while preserving the file extension if truncated
+		if (cleaned.Length > MaxFileNameLength)
+		{
+			string extension = Path.GetExtension(cleaned);
+			if (!string.IsNullOrEmpty(extension) && extension.Length < MaxFileNameLength)
+			{
+				int stemLength = MaxFileNameLength - extension.Length;
+				cleaned = string.Concat(cleaned.AsSpan(0, stemLength), extension);
+			}
+			else
+			{
+				cleaned = cleaned[..MaxFileNameLength];
+			}
+		}
+
+		return cleaned;
 	}
 }

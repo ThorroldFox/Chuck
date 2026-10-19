@@ -21,7 +21,7 @@ Content-Type: application/json
 POST {{Chuck.API_HostAddress}}/api/config/verify
 X-Instance-Passcode: {{passcode}}
 
-### 1. Create a Drop (Multipart: Text Payload & Attached File)
+### 1. Create a Drop (Multipart: Text Payload, Expiry Duration & Attached File)
 POST {{Chuck.API_HostAddress}}/api/drops
 X-Instance-Passcode: {{passcode}}
 Content-Type: multipart/form-data; boundary=boundary
@@ -30,6 +30,10 @@ Content-Type: multipart/form-data; boundary=boundary
 Content-Disposition: form-data; name="TextPayload"
 
 Hello from Chuck HTTP test!
+--boundary
+Content-Disposition: form-data; name="ExpiryMinutes"
+
+10
 --boundary
 Content-Disposition: form-data; name="Files"; filename="sample.txt"
 Content-Type: text/plain

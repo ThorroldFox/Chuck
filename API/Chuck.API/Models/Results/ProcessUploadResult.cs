@@ -17,10 +17,10 @@ public sealed class ProcessUploadResult
 
 	/**
 	 * <summary>
-	 * The generated 4-digit retrieval PIN allocated to this drop, or <c>null</c> if creation failed.
+	 * The generated 4-digit retrieval PIN allocated to this drop, or <c>0</c> if creation failed.
 	 * </summary>
 	 */
-	public string? Pin { get; }
+	public int Pin { get; }
 
 	/**
 	 * <summary>
@@ -28,6 +28,13 @@ public sealed class ProcessUploadResult
 	 * </summary>
 	 */
 	public int? ExpiresInMinutes { get; }
+
+	/**
+	 * <summary>
+	 * Exact UTC timestamp when the drop expires and becomes eligible for automatic server eviction.
+	 * </summary>
+	 */
+	public DateTime? ExpiresAt { get; }
 
 	/**
 	 * <summary>
@@ -43,11 +50,12 @@ public sealed class ProcessUploadResult
 	 */
 	public string Message { get; }
 
-	private ProcessUploadResult(bool success, string? pin, int? expiresInMinutes, string? burnToken, string message)
+	private ProcessUploadResult(bool success, int pin, int? expiresInMinutes, DateTime? expiresAt, string? burnToken, string message)
 	{
 		Success = success;
 		Pin = pin;
 		ExpiresInMinutes = expiresInMinutes;
+		ExpiresAt = expiresAt;
 		BurnToken = burnToken;
 		Message = message;
 	}
@@ -59,10 +67,11 @@ public sealed class ProcessUploadResult
 	 * <param name="pin">The 4-digit numeric retrieval PIN.</param>
 	 * <param name="burnToken">The 16-byte hex cancellation token.</param>
 	 * <param name="expiresInMinutes">The duration before expiration (defaults to 10 minutes).</param>
+	 * <param name="expiresAt">Optional exact UTC expiration timestamp.</param>
 	 * <returns>A populated successful <see cref="ProcessUploadResult"/> instance.</returns>
 	 */
-	public static ProcessUploadResult Succeeded(string pin, string burnToken, int expiresInMinutes = 10) =>
-		new(true, pin, expiresInMinutes, burnToken, "Drop created successfully.");
+	public static ProcessUploadResult Succeeded(int pin, string burnToken, int expiresInMinutes = 10, DateTime? expiresAt = null) =>
+		new(true, pin, expiresInMinutes, expiresAt, burnToken, "Drop created successfully.");
 
 	/**
 	 * <summary>
@@ -72,5 +81,6 @@ public sealed class ProcessUploadResult
 	 * <returns>A populated failure <see cref="ProcessUploadResult"/> instance.</returns>
 	 */
 	public static ProcessUploadResult Failed(string message) =>
-		new(false, null, null, null, message);
+		new(false, 0, null, null, null, message);
 }
+

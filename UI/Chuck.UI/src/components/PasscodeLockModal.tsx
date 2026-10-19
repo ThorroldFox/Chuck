@@ -23,11 +23,13 @@ import chuckStop from "../assets/chuck_stop.jpg";
 interface PasscodeLockModalProps {
 	open: boolean;
 	onUnlocked: (passcode: string) => void;
+	onRateLimited?: () => void;
 }
 
 export const PasscodeLockModal: React.FC<PasscodeLockModalProps> = ({
 	open,
 	onUnlocked,
+	onRateLimited,
 }) => {
 	const [passcode, setPasscode] = useState("");
 	const [remember, setRemember] = useState(false);
@@ -57,6 +59,7 @@ export const PasscodeLockModal: React.FC<PasscodeLockModalProps> = ({
 			} else if (response.status === 401) {
 				setError("Incorrect passcode. Please try again.");
 			} else if (response.status === 429) {
+				onRateLimited?.();
 				setError(
 					"Too many attempts. Rate limit reached. Please wait a moment before trying again.",
 				);

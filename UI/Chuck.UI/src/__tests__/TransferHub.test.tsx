@@ -304,4 +304,111 @@ describe("TransferHub", () => {
 			);
 		});
 	});
+
+	it("allows selecting a custom expiry duration (30 mins) and renders the live expiry countdown badge", async () => {
+		const user = userEvent.setup();
+		let sentFormData: FormData | null = null;
+
+		const OriginalXHR = globalThis.XMLHttpRequest;
+		class MockXHR {
+			status = 201;
+			responseText = JSON.stringify({
+				pin: "3030",
+				expiresInMinutes: 30,
+				expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+				burnToken: "token-30",
+			});
+			upload = { onprogress: null as any };
+			onload: (() => void) | null = null;
+			onerror: (() => void) | null = null;
+			open = vi.fn();
+			setRequestHeader = vi.fn();
+			send = vi.fn((body: FormData) => {
+				sentFormData = body;
+				if (this.onload) this.onload();
+			});
+		}
+		globalThis.XMLHttpRequest = MockXHR as any;
+
+		try {
+			render(<TransferHub />);
+
+			// Select "30 mins" expiry chip
+			const thirtyMinChip = screen.getByRole("button", {
+				name: /30 mins/i,
+			});
+			await user.click(thirtyMinChip);
+
+			const memoInput = screen.getByPlaceholderText(/paste text here/i);
+			await user.type(memoInput, "Thirty minute payload");
+			await user.click(
+				screen.getByRole("button", { name: /chuck it/i }),
+			);
+
+			await waitFor(() => {
+				expect(screen.getByText("3030")).toBeInTheDocument();
+			});
+
+			expect(sentFormData).not.toBeNull();
+			expect(sentFormData!.get("ExpiryMinutes")).toBe("30");
+			expect(
+				screen.getByText(/expires in (29:|30:00)/i),
+			).toBeInTheDocument();
+		} finally {
+			globalThis.XMLHttpRequest = OriginalXHR;
+		}
+	});
+
+	it("downloads retrieved text snippet as a .txt file when clicking Download as .txt", async () => {
+		const user = userEvent.setup();
+		const mockFetch = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				pin: "1234",
+				text: "Downloadable text memo",
+				expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+				files: [],
+			}),
+		} as Response);
+		globalThis.fetch = mockFetch;
+
+		const createObjectUrlSpy = vi
+			.spyOn(URL, "createObjectURL")
+			.mockReturnValue("blob:mock-text-url");
+		const revokeObjectUrlSpy = vi
+			.spyOn(URL, "revokeObjectURL")
+			.mockImplementation(() => {});
+
+		try {
+			render(<TransferHub />);
+
+			await user.click(screen.getByRole("tab", { name: /retrieve/i }));
+			const pinInput = screen.getByPlaceholderText("e.g. 1234");
+			await user.type(pinInput, "1234{Enter}");
+
+			await waitFor(() => {
+				expect(
+					screen.getByText("Downloadable text memo"),
+				).toBeInTheDocument();
+				expect(
+					screen.getByText(/expires in (09:|10:00)/i),
+				).toBeInTheDocument();
+			});
+
+			const downloadTxtBtn = screen.getByRole("button", {
+				name: /download text as \.txt/i,
+			});
+			await user.click(downloadTxtBtn);
+
+			expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
+			expect(revokeObjectUrlSpy).toHaveBeenCalledWith(
+				"blob:mock-text-url",
+			);
+		} finally {
+			createObjectUrlSpy.mockRestore();
+			revokeObjectUrlSpy.mockRestore();
+		}
+	});
 });
+

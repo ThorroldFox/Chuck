@@ -6,6 +6,7 @@ namespace Chuck.API.Orchestrators;
 
 public class DropsOrchestrator : IDropsOrchestrator
 {
+	public const int MaxTextPayloadLength = 100000;
 	private readonly IDropService _dropService;
 
 	public DropsOrchestrator(IDropService dropService)
@@ -23,6 +24,16 @@ public class DropsOrchestrator : IDropsOrchestrator
 			return ProcessUploadResult.Failed("Payload cannot be completely empty.");
 		}
 
+		if (hasText && request.TextPayload!.Length > MaxTextPayloadLength)
+		{
+			return ProcessUploadResult.Failed("Text payload exceeds the 100,000-character limit.");
+		}
+
+		if (request.ExpiryMinutes.HasValue && (request.ExpiryMinutes.Value < 1 || request.ExpiryMinutes.Value > 30))
+		{
+			return ProcessUploadResult.Failed("Expiry duration for anonymous drops must be between 1 and 30 minutes.");
+		}
+
 		// Sum the sizes of request.Files to ensure it doesn't breach the dynamic 500MB quota
 		if (hasFiles)
 		{
@@ -35,8 +46,10 @@ public class DropsOrchestrator : IDropsOrchestrator
 
 		try
 		{
+			int expiryMinutes = request.ExpiryMinutes ?? 10;
 			var (pin, burnToken) = await _dropService.CreateDropAsync(request);
-			return ProcessUploadResult.Succeeded(pin, burnToken);
+			var createdDrop = _dropService.GetDrop(pin);
+			return ProcessUploadResult.Succeeded(pin, burnToken, expiryMinutes, createdDrop?.ExpiresAt);
 		}
 		catch (Exception ex)
 		{
@@ -44,7 +57,7 @@ public class DropsOrchestrator : IDropsOrchestrator
 		}
 	}
 
-	public DropSummaryResult GetDropSummary(string pin)
+	public DropSummaryResult GetDropSummary(int pin)
 	{
 		var payload = _dropService.GetDrop(pin);
 		if (payload == null)
@@ -55,7 +68,7 @@ public class DropsOrchestrator : IDropsOrchestrator
 		return DropSummaryResult.Succeeded(payload);
 	}
 
-	public FileDownloadResult GetFileForDownload(string pin, string fileId)
+	public FileDownloadResult GetFileForDownload(int pin, string fileId)
 	{
 		var payload = _dropService.GetDrop(pin);
 		if (payload == null)
@@ -82,7 +95,7 @@ public class DropsOrchestrator : IDropsOrchestrator
 		return FileDownloadResult.Succeeded(path, fileMeta.ContentType, fileMeta.OriginalName);
 	}
 
-	public ZipDownloadResult GetFilesForZip(string pin)
+	public ZipDownloadResult GetFilesForZip(int pin)
 	{
 		var payload = _dropService.GetDrop(pin);
 		if (payload == null)
@@ -107,12 +120,12 @@ public class DropsOrchestrator : IDropsOrchestrator
 		return ZipDownloadResult.Succeeded(files);
 	}
 
-	public bool BurnFile(string pin, string fileId)
+	public bool BurnFile(int pin, string fileId)
 	{
 		return _dropService.DeleteFile(pin, fileId);
 	}
 
-	public bool CancelDrop(string pin, string? token)
+	public bool CancelDrop(int pin, string? token)
 	{
 		return _dropService.DeleteDrop(pin, token);
 	}

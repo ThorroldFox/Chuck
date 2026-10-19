@@ -12,7 +12,7 @@ public class CreateDropResponse
      * The generated 4-digit numeric PIN for collecting the drop.
      * </summary>
      */
-	public string Pin { get; set; } = string.Empty;
+	public int Pin { get; set; }
 
 	/**
      * <summary>
@@ -23,8 +23,16 @@ public class CreateDropResponse
 
 	/**
      * <summary>
+     * Exact UTC timestamp when the drop expires and becomes eligible for automatic eviction.
+     * </summary>
+     */
+	public DateTime? ExpiresAt { get; set; }
+
+	/**
+     * <summary>
      * Cryptographic 128-bit hex token granting the sender pre-retrieval cancellation authority.
      * </summary>
      */
 	public string? BurnToken { get; set; }
 }
+

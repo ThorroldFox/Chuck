@@ -48,8 +48,9 @@ public class DropsController : ControllerBase
 
 		var response = new CreateDropResponse
 		{
-			Pin = result.Pin!,
+			Pin = result.Pin,
 			ExpiresInMinutes = result.ExpiresInMinutes,
+			ExpiresAt = result.ExpiresAt,
 			BurnToken = result.BurnToken
 		};
 
@@ -68,7 +69,7 @@ public class DropsController : ControllerBase
 	[HttpGet("{pin}")]
 	[ProducesResponseType(typeof(DropMetadataResponse), StatusCodes.Status200OK)]
 	[ProducesResponseType(typeof(MessageResponse), StatusCodes.Status404NotFound)]
-	public IActionResult GetDropMetadata(string pin)
+	public IActionResult GetDropMetadata(int pin)
 	{
 		var result = _orchestrator.GetDropSummary(pin);
 
@@ -90,7 +91,8 @@ public class DropsController : ControllerBase
 				BurnUrl = $"/api/drops/{pin}/files/{f.Id}"
 			}),
 			ZipUrl = $"/api/drops/{pin}/zip",
-			BurnUrl = $"/api/drops/{pin}"
+			BurnUrl = $"/api/drops/{pin}",
+			ExpiresAt = result.Payload.ExpiresAt
 		};
 
 		return Ok(response);
@@ -107,9 +109,10 @@ public class DropsController : ControllerBase
      * <response code="404">Drop or file ID not found, or file no longer present on server.</response>
      */
 	[HttpGet("{pin}/files/{fileId}")]
+	[EnableRateLimiting("GeneralPolicy")]
 	[ProducesResponseType(StatusCodes.Status200OK)]
 	[ProducesResponseType(typeof(MessageResponse), StatusCodes.Status404NotFound)]
-	public IActionResult DownloadFile(string pin, string fileId)
+	public IActionResult DownloadFile(int pin, string fileId)
 	{
 		var result = _orchestrator.GetFileForDownload(pin, fileId);
 
@@ -134,7 +137,7 @@ public class DropsController : ControllerBase
 	[HttpGet("{pin}/zip")]
 	[ProducesResponseType(StatusCodes.Status200OK)]
 	[ProducesResponseType(typeof(MessageResponse), StatusCodes.Status404NotFound)]
-	public async Task DownloadZip(string pin, [FromQuery] string? token)
+	public async Task DownloadZip(int pin, [FromQuery] string? token)
 	{
 		var result = _orchestrator.GetFilesForZip(pin);
 
@@ -145,7 +148,8 @@ public class DropsController : ControllerBase
 			return;
 		}
 
-		if (!string.IsNullOrEmpty(token))
+		// Cap transient status token length to prevent oversized query strings from polluting IMemoryCache
+		if (!string.IsNullOrEmpty(token) && token.Length <= 64)
 		{
 			_cache.Set($"dl_status_{token}", "started", TimeSpan.FromMinutes(5));
 		}
@@ -160,11 +164,16 @@ public class DropsController : ControllerBase
 		Response.Headers.Append("Content-Disposition", $"attachment; filename=\"Chuck-Payload-{pin}.zip\"");
 		Response.Headers.Append("Cache-Control", "no-store, no-cache");
 
+		// Track entry names to disambiguate duplicate filenames (e.g. from recursive folder drag-and-drop)
+		// so OS archive extractors do not overwrite colliding files upon extraction.
+		var usedEntryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
 		using (var archive = new ZipArchive(Response.Body, ZipArchiveMode.Create, leaveOpen: true))
 		{
 			foreach (var file in result.Files)
 			{
-				var entry = archive.CreateEntry(file.OriginalName, CompressionLevel.NoCompression);
+				string entryName = ResolveUniqueZipEntryName(file.OriginalName, usedEntryNames);
+				var entry = archive.CreateEntry(entryName, CompressionLevel.NoCompression);
 				using (var entryStream = entry.Open())
 				using (var fileStream = System.IO.File.OpenRead(file.PhysicalPath))
 				{
@@ -184,11 +193,12 @@ public class DropsController : ControllerBase
      * <response code="404">Token not found, already consumed, or stream not yet started.</response>
      */
 	[HttpGet("status/{token}")]
+	[EnableRateLimiting("GeneralPolicy")]
 	[ProducesResponseType(typeof(DownloadStatusResponse), StatusCodes.Status200OK)]
 	[ProducesResponseType(StatusCodes.Status404NotFound)]
 	public IActionResult GetDownloadStatus(string token)
 	{
-		if (_cache.TryGetValue($"dl_status_{token}", out string? _))
+		if (token.Length <= 64 && _cache.TryGetValue($"dl_status_{token}", out string? _))
 		{
 			_cache.Remove($"dl_status_{token}");
 			return Ok(new DownloadStatusResponse { Status = "started" });
@@ -208,9 +218,10 @@ public class DropsController : ControllerBase
      * <response code="404">File not found or already burnt.</response>
      */
 	[HttpDelete("{pin}/files/{fileId}")]
+	[EnableRateLimiting("GeneralPolicy")]
 	[ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
 	[ProducesResponseType(typeof(MessageResponse), StatusCodes.Status404NotFound)]
-	public IActionResult BurnFile(string pin, string fileId)
+	public IActionResult BurnFile(int pin, string fileId)
 	{
 		var success = _orchestrator.BurnFile(pin, fileId);
 
@@ -235,7 +246,7 @@ public class DropsController : ControllerBase
 	[HttpDelete("{pin}")]
 	[ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
 	[ProducesResponseType(typeof(MessageResponse), StatusCodes.Status404NotFound)]
-	public IActionResult DeleteDrop(string pin, [FromQuery] string? token)
+	public IActionResult DeleteDrop(int pin, [FromQuery] string? token)
 	{
 		var success = _orchestrator.CancelDrop(pin, token);
 
@@ -245,5 +256,34 @@ public class DropsController : ControllerBase
 		}
 
 		return Ok(new MessageResponse { Message = "Drop successfully burnt." });
+	}
+
+	/**
+	 * <summary>
+	 * Ensures each entry in the streamed ZIP archive has a unique filename by appending a numeric suffix
+	 * (e.g. "file (1).txt") when duplicate filenames occur across uploaded files or nested folders.
+	 * </summary>
+	 */
+	private static string ResolveUniqueZipEntryName(string originalName, HashSet<string> usedEntryNames)
+	{
+		string baseName = string.IsNullOrWhiteSpace(originalName) ? "unnamed-file" : originalName;
+		if (usedEntryNames.Add(baseName))
+		{
+			return baseName;
+		}
+
+		string stem = Path.GetFileNameWithoutExtension(baseName);
+		string extension = Path.GetExtension(baseName);
+		int counter = 1;
+
+		while (true)
+		{
+			string candidate = $"{stem} ({counter}){extension}";
+			if (usedEntryNames.Add(candidate))
+			{
+				return candidate;
+			}
+			counter++;
+		}
 	}
 }

@@ -17,6 +17,8 @@ There are no user accounts, no tracking cookies, and no permanent database overh
 * **In-Flight Cancellation:** Senders retain pre-retrieval cancellation authority ("Cancel Drop") to revoke and incinerate accidental uploads before collection.
 * **Crash Resilience & Boot Sweep:** Active drops safely survive server restarts, power loss, and container upgrades via lightweight on-disk JSON sidecars, while expired drops are automatically purged during the startup Boot Sweep.
 * **On-The-Fly Zipping:** Drop multiple files, and Chuck streams them directly into an uncompressed `.zip` file on download without consuming server RAM or disk buffering.
+* **Selectable Expiry Windows & Live Countdown Timers:** Choose a 5, 10, or 30-minute auto-burn lifetime when creating a drop, and track remaining lifetime in real time via live countdown badges on both the sender and recipient views.
+* **Recursive Folder Drag-and-Drop & `.txt` Export:** Drag entire folders directly into the drop zone to automatically extract and queue their files, and download retrieved text snippets as `.txt` files with a single click.
 * **Instance Access Passcodes:** Optionally lock down your server with single or multiple passcodes (`ChuckSettings__InstancePasscodes`) using constant-time verification, with session lock and device persistence controls.
 * **QR Code & Quick-Catch Links:** Scan the generated QR code with a phone camera or share a one-click Quick-Catch link (`/?pin=1234`) to automatically retrieve payloads without typing the PIN.
 * **One-Click Clipboard PIN Paste:** Quickly paste 4-digit PINs or Quick-Catch links from your clipboard straight into the retrieval input with a single click.
@@ -55,11 +57,11 @@ docker compose up -d
 
 ### Option 2: Offline / Air-Gapped Deployment (`.tar` Release Archive)
 
-For private homelabs or air-gapped servers without registry access, standalone container archives are attached to each [GitHub Release](https://github.com/ThorroldFox/Chuck/releases). Transfer `docker-compose.yml` and `chuck-v1.0.4.tar` to your server, then run:
+For private homelabs or air-gapped servers without registry access, standalone container archives are attached to each [GitHub Release](https://github.com/ThorroldFox/Chuck/releases). Transfer `docker-compose.yml` and `chuck-v1.0.5.tar` to your server, then run:
 
 ```bash
 # 1. Load the standalone Chuck image into Docker
-docker load -i chuck-v1.0.4.tar
+docker load -i chuck-v1.0.5.tar
 
 # 2. Launch Chuck and ClamAV in the background
 docker compose up -d

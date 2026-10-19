@@ -20,7 +20,7 @@ public class InstancePasscodeFilterTests
 		_filter = new InstancePasscodeFilter(_authService);
 	}
 
-	private static ActionExecutingContext CreateContext(HttpContext httpContext)
+	private static AuthorizationFilterContext CreateContext(HttpContext httpContext)
 	{
 		var actionContext = new ActionContext(
 			httpContext,
@@ -28,65 +28,47 @@ public class InstancePasscodeFilterTests
 			new ActionDescriptor()
 		);
 
-		return new ActionExecutingContext(
+		return new AuthorizationFilterContext(
 			actionContext,
-			new List<IFilterMetadata>(),
-			new Dictionary<string, object?>(),
-			controller: new object()
+			new List<IFilterMetadata>()
 		);
 	}
 
 	[Fact]
-	public async Task OnActionExecutionAsync_WhenProtectionDisabled_InvokesNext()
+	public async Task OnAuthorizationAsync_WhenProtectionDisabled_LeavesResultNull()
 	{
 		// Arrange
 		_authService.IsPasscodeProtectionEnabled.Returns(false);
 		var httpContext = new DefaultHttpContext();
 		var context = CreateContext(httpContext);
-		var nextInvoked = false;
-
-		ActionExecutionDelegate next = () =>
-		{
-			nextInvoked = true;
-			return Task.FromResult(new ActionExecutedContext(context, new List<IFilterMetadata>(), controller: new object()));
-		};
 
 		// Act
-		await _filter.OnActionExecutionAsync(context, next);
+		await _filter.OnAuthorizationAsync(context);
 
 		// Assert
-		Assert.True(nextInvoked);
 		Assert.Null(context.Result);
 	}
 
 	[Fact]
-	public async Task OnActionExecutionAsync_WhenProtectionEnabledAndNoPasscode_ReturnsUnauthorized()
+	public async Task OnAuthorizationAsync_WhenProtectionEnabledAndNoPasscode_ReturnsUnauthorized()
 	{
 		// Arrange
 		_authService.IsPasscodeProtectionEnabled.Returns(true);
 		_authService.ValidatePasscode(null).Returns(false);
 		var httpContext = new DefaultHttpContext();
 		var context = CreateContext(httpContext);
-		var nextInvoked = false;
-
-		ActionExecutionDelegate next = () =>
-		{
-			nextInvoked = true;
-			return Task.FromResult(new ActionExecutedContext(context, new List<IFilterMetadata>(), controller: new object()));
-		};
 
 		// Act
-		await _filter.OnActionExecutionAsync(context, next);
+		await _filter.OnAuthorizationAsync(context);
 
 		// Assert
-		Assert.False(nextInvoked);
 		var unauthorized = Assert.IsType<UnauthorizedObjectResult>(context.Result);
 		var response = Assert.IsType<MessageResponse>(unauthorized.Value);
 		Assert.Equal("Instance passcode required or invalid.", response.Message);
 	}
 
 	[Fact]
-	public async Task OnActionExecutionAsync_WhenProtectionEnabledAndHeaderValid_InvokesNext()
+	public async Task OnAuthorizationAsync_WhenProtectionEnabledAndHeaderValid_LeavesResultNull()
 	{
 		// Arrange
 		_authService.IsPasscodeProtectionEnabled.Returns(true);
@@ -95,24 +77,16 @@ public class InstancePasscodeFilterTests
 		var httpContext = new DefaultHttpContext();
 		httpContext.Request.Headers["X-Instance-Passcode"] = "SecretKey";
 		var context = CreateContext(httpContext);
-		var nextInvoked = false;
-
-		ActionExecutionDelegate next = () =>
-		{
-			nextInvoked = true;
-			return Task.FromResult(new ActionExecutedContext(context, new List<IFilterMetadata>(), controller: new object()));
-		};
 
 		// Act
-		await _filter.OnActionExecutionAsync(context, next);
+		await _filter.OnAuthorizationAsync(context);
 
 		// Assert
-		Assert.True(nextInvoked);
 		Assert.Null(context.Result);
 	}
 
 	[Fact]
-	public async Task OnActionExecutionAsync_WhenProtectionEnabledAndQueryParamValid_InvokesNext()
+	public async Task OnAuthorizationAsync_WhenProtectionEnabledAndQueryParamValid_LeavesResultNull()
 	{
 		// Arrange
 		_authService.IsPasscodeProtectionEnabled.Returns(true);
@@ -121,19 +95,11 @@ public class InstancePasscodeFilterTests
 		var httpContext = new DefaultHttpContext();
 		httpContext.Request.QueryString = new QueryString("?passcode=QueryKey");
 		var context = CreateContext(httpContext);
-		var nextInvoked = false;
-
-		ActionExecutionDelegate next = () =>
-		{
-			nextInvoked = true;
-			return Task.FromResult(new ActionExecutedContext(context, new List<IFilterMetadata>(), controller: new object()));
-		};
 
 		// Act
-		await _filter.OnActionExecutionAsync(context, next);
+		await _filter.OnAuthorizationAsync(context);
 
 		// Assert
-		Assert.True(nextInvoked);
 		Assert.Null(context.Result);
 	}
 }

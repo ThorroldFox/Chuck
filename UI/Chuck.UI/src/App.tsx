@@ -110,6 +110,12 @@ export default function App() {
 		setLockModalOpen(true);
 	};
 
+	const handleRateLimited = useCallback(() => {
+		setIsRateLimited(true);
+		setIsServerUnreachable(false);
+		setLockModalOpen(false);
+	}, []);
+
 	return (
 		<ThemeProvider theme={darkTheme}>
 			<CssBaseline />
@@ -220,6 +226,7 @@ export default function App() {
 				) : (
 					<TransferHub
 						onUnauthorized={handleLockInstance}
+						onRateLimited={handleRateLimited}
 						isUnlocked={isConfigLoaded && isUnlocked}
 					/>
 				)}
@@ -240,6 +247,7 @@ export default function App() {
 					setIsUnlocked(true);
 					setLockModalOpen(false);
 				}}
+				onRateLimited={handleRateLimited}
 			/>
 		</ThemeProvider>
 	);

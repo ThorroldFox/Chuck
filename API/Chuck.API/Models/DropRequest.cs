@@ -20,4 +20,12 @@ public class DropRequest
      * </summary>
      */
 	public IFormFileCollection? Files { get; set; }
+
+	/**
+     * <summary>
+     * Optional requested time-to-live duration in minutes for the drop (defaults to 10 minutes; bounded between 1 and 30 minutes for anonymous drops).
+     * </summary>
+     */
+	public int? ExpiryMinutes { get; set; }
 }
+

@@ -4,14 +4,14 @@ namespace Chuck.API.Services;
 
 public interface IDropService
 {
-	Task<(string Pin, string BurnToken)> CreateDropAsync(DropRequest request);
-	DropPayload? GetDrop(string pin);
+	Task<(int Pin, string BurnToken)> CreateDropAsync(DropRequest request);
+	DropPayload? GetDrop(int pin);
 	string GetPhysicalFilePath(string fileId);
 	bool PayloadFileExists(string fileId);
-	bool SidecarExists(string pin);
-	void ExtendDropTtl(string pin);
-	bool DeleteFile(string pin, string fileId);
-	bool DeleteDrop(string pin, string? token = null);
+	bool SidecarExists(int pin);
+	void ExtendDropTtl(int pin);
+	bool DeleteFile(int pin, string fileId);
+	bool DeleteDrop(int pin, string? token = null);
 	void ExecuteBootSweep();
-	string GetMetaSidecarPath(string pin);
+	string GetMetaSidecarPath(int pin);
 }

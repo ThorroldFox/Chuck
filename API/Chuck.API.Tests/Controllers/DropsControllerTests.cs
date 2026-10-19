@@ -41,9 +41,10 @@ public class DropsControllerTests
 	public async Task CreateDrop_WhenOrchestratorSucceeds_ReturnsCreatedWithHateoasLocationAndBody()
 	{
 		// Arrange
-		var request = new DropRequest { TextPayload = "Secret note" };
+		var expectedExpiry = new DateTime(2026, 10, 18, 12, 10, 0, DateTimeKind.Utc);
+		var request = new DropRequest { TextPayload = "Secret note", ExpiryMinutes = 30 };
 		_orchestrator.ProcessUploadAsync(request)
-			.Returns(ProcessUploadResult.Succeeded("5678", "burn-token-abc", 10));
+			.Returns(ProcessUploadResult.Succeeded(5678, "burn-token-abc", 30, expectedExpiry));
 
 		// Act
 		var result = await _controller.CreateDrop(request);
@@ -53,8 +54,9 @@ public class DropsControllerTests
 		Assert.Equal("/api/drops/5678", created.Location);
 
 		var response = Assert.IsType<CreateDropResponse>(created.Value);
-		Assert.Equal("5678", response.Pin);
-		Assert.Equal(10, response.ExpiresInMinutes);
+		Assert.Equal(5678, response.Pin);
+		Assert.Equal(30, response.ExpiresInMinutes);
+		Assert.Equal(expectedExpiry, response.ExpiresAt);
 		Assert.Equal("burn-token-abc", response.BurnToken);
 	}
 
@@ -62,11 +64,11 @@ public class DropsControllerTests
 	public void GetDropMetadata_WhenDropNotFound_ReturnsNotFound()
 	{
 		// Arrange
-		_orchestrator.GetDropSummary("9999")
+		_orchestrator.GetDropSummary(9999)
 			.Returns(DropSummaryResult.Failed("Invalid PIN or payload has expired."));
 
 		// Act
-		var result = _controller.GetDropMetadata("9999");
+		var result = _controller.GetDropMetadata(9999);
 
 		// Assert
 		var notFound = Assert.IsType<NotFoundObjectResult>(result);
@@ -78,10 +80,12 @@ public class DropsControllerTests
 	public void GetDropMetadata_WhenDropFound_ReturnsOkWithHateoasUrls()
 	{
 		// Arrange
+		var expectedExpiry = new DateTime(2026, 10, 18, 12, 30, 0, DateTimeKind.Utc);
 		var payload = new DropPayload
 		{
-			Pin = "1234",
+			Pin = 1234,
 			TextPayload = "Decrypted text",
+			ExpiresAt = expectedExpiry,
 			Files = new List<FileMetadata>
 			{
 				new()
@@ -93,10 +97,10 @@ public class DropsControllerTests
 				}
 			}
 		};
-		_orchestrator.GetDropSummary("1234").Returns(DropSummaryResult.Succeeded(payload));
+		_orchestrator.GetDropSummary(1234).Returns(DropSummaryResult.Succeeded(payload));
 
 		// Act
-		var result = _controller.GetDropMetadata("1234");
+		var result = _controller.GetDropMetadata(1234);
 
 		// Assert
 		var okResult = Assert.IsType<OkObjectResult>(result);
@@ -104,6 +108,7 @@ public class DropsControllerTests
 		Assert.Equal("Decrypted text", response.Text);
 		Assert.Equal("/api/drops/1234/zip", response.ZipUrl);
 		Assert.Equal("/api/drops/1234", response.BurnUrl);
+		Assert.Equal(expectedExpiry, response.ExpiresAt);
 
 		var file = Assert.Single(response.Files);
 		Assert.Equal("file-guid-1", file.Id);
@@ -115,11 +120,11 @@ public class DropsControllerTests
 	public void DownloadFile_WhenNotFound_ReturnsNotFound()
 	{
 		// Arrange
-		_orchestrator.GetFileForDownload("1234", "bad-id")
+		_orchestrator.GetFileForDownload(1234, "bad-id")
 			.Returns(FileDownloadResult.Failed("File not found in this drop."));
 
 		// Act
-		var result = _controller.DownloadFile("1234", "bad-id");
+		var result = _controller.DownloadFile(1234, "bad-id");
 
 		// Assert
 		var notFound = Assert.IsType<NotFoundObjectResult>(result);
@@ -131,11 +136,11 @@ public class DropsControllerTests
 	public void DownloadFile_WhenValid_ReturnsPhysicalFileResultWithRangeProcessing()
 	{
 		// Arrange
-		_orchestrator.GetFileForDownload("1234", "file-1")
+		_orchestrator.GetFileForDownload(1234, "file-1")
 			.Returns(FileDownloadResult.Succeeded("C:\\drops\\file-1", "application/pdf", "document.pdf"));
 
 		// Act
-		var result = _controller.DownloadFile("1234", "file-1");
+		var result = _controller.DownloadFile(1234, "file-1");
 
 		// Assert
 		var physicalFile = Assert.IsType<PhysicalFileResult>(result);
@@ -175,13 +180,27 @@ public class DropsControllerTests
 	}
 
 	[Fact]
+	public void GetDownloadStatus_WhenTokenExceedsMaxLength_ReturnsNotFound()
+	{
+		// Arrange: Set an oversized token in cache (> 64 characters)
+		string oversizedToken = new string('x', 65);
+		_cache.Set($"dl_status_{oversizedToken}", "started", TimeSpan.FromMinutes(5));
+
+		// Act
+		var result = _controller.GetDownloadStatus(oversizedToken);
+
+		// Assert
+		Assert.IsType<NotFoundResult>(result);
+	}
+
+	[Fact]
 	public void BurnFile_WhenFileNotFound_ReturnsNotFound()
 	{
 		// Arrange
-		_orchestrator.BurnFile("1111", "file-9").Returns(false);
+		_orchestrator.BurnFile(1111, "file-9").Returns(false);
 
 		// Act
-		var result = _controller.BurnFile("1111", "file-9");
+		var result = _controller.BurnFile(1111, "file-9");
 
 		// Assert
 		var notFound = Assert.IsType<NotFoundObjectResult>(result);
@@ -193,10 +212,10 @@ public class DropsControllerTests
 	public void BurnFile_WhenSuccessful_ReturnsOk()
 	{
 		// Arrange
-		_orchestrator.BurnFile("1111", "file-9").Returns(true);
+		_orchestrator.BurnFile(1111, "file-9").Returns(true);
 
 		// Act
-		var result = _controller.BurnFile("1111", "file-9");
+		var result = _controller.BurnFile(1111, "file-9");
 
 		// Assert
 		var okResult = Assert.IsType<OkObjectResult>(result);
@@ -208,10 +227,10 @@ public class DropsControllerTests
 	public void DeleteDrop_WhenDropNotFoundOrTokenMismatch_ReturnsNotFound()
 	{
 		// Arrange
-		_orchestrator.CancelDrop("2222", "bad-token").Returns(false);
+		_orchestrator.CancelDrop(2222, "bad-token").Returns(false);
 
 		// Act
-		var result = _controller.DeleteDrop("2222", "bad-token");
+		var result = _controller.DeleteDrop(2222, "bad-token");
 
 		// Assert
 		var notFound = Assert.IsType<NotFoundObjectResult>(result);
@@ -223,10 +242,10 @@ public class DropsControllerTests
 	public void DeleteDrop_WhenSuccessful_ReturnsOk()
 	{
 		// Arrange
-		_orchestrator.CancelDrop("2222", "valid-token").Returns(true);
+		_orchestrator.CancelDrop(2222, "valid-token").Returns(true);
 
 		// Act
-		var result = _controller.DeleteDrop("2222", "valid-token");
+		var result = _controller.DeleteDrop(2222, "valid-token");
 
 		// Assert
 		var okResult = Assert.IsType<OkObjectResult>(result);

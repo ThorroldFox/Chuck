@@ -7,10 +7,11 @@ namespace Chuck.API.Filters;
 
 /**
  * <summary>
- * Action filter that enforces instance access passcode validation across protected endpoints.
+ * Authorisation filter that enforces instance access passcode validation across protected endpoints.
+ * Executes prior to model binding so unauthenticated multipart uploads are rejected before buffering request bodies.
  * </summary>
  */
-public class InstancePasscodeFilter : IAsyncActionFilter
+public class InstancePasscodeFilter : IAsyncAuthorizationFilter
 {
 	private readonly IInstanceAuthorisationService _authService;
 
@@ -22,12 +23,11 @@ public class InstancePasscodeFilter : IAsyncActionFilter
 	/**
 	 * <inheritdoc />
 	 */
-	public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+	public Task OnAuthorizationAsync(AuthorizationFilterContext context)
 	{
 		if (!_authService.IsPasscodeProtectionEnabled)
 		{
-			await next();
-			return;
+			return Task.CompletedTask;
 		}
 
 		string? passcode = context.HttpContext.Request.Headers["X-Instance-Passcode"].FirstOrDefault()
@@ -39,9 +39,8 @@ public class InstancePasscodeFilter : IAsyncActionFilter
 			{
 				Message = "Instance passcode required or invalid."
 			});
-			return;
 		}
 
-		await next();
+		return Task.CompletedTask;
 	}
 }
