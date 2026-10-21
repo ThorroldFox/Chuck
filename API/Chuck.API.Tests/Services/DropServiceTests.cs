@@ -353,4 +353,80 @@ public class DropServiceTests : IDisposable
 		Assert.Equal(Path.Combine(_tempDirectory, "passwd"), filePath);
 		Assert.Equal(Path.Combine(_tempDirectory, "1234_meta.json"), sidecarPath);
 	}
+
+	private DropService CreateDropServiceWithSettings(params (string Key, string? Value)[] overrides)
+	{
+		var settings = new Dictionary<string, string?>
+		{
+			{ "ChuckSettings:DiskStoragePath", _tempDirectory },
+			{ "ChuckSettings:EnableVirusScanning", "false" }
+		};
+
+		foreach (var (key, value) in overrides)
+		{
+			settings[key] = value;
+		}
+
+		var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+		return new DropService(_cache, config, NullLogger<DropService>.Instance, null, _timeProvider);
+	}
+
+	[Fact]
+	public void MaxPayloadSizeBytes_WhenNotConfigured_DefaultsToFiveHundredMegabytes()
+	{
+		var service = CreateDropServiceWithSettings();
+
+		Assert.Equal(524288000L, service.MaxPayloadSizeBytes);
+	}
+
+	[Fact]
+	public void MaxPayloadSizeBytes_WhenConfigured_ReturnsConfiguredValue()
+	{
+		var service = CreateDropServiceWithSettings(("ChuckSettings:MaxPayloadSizeBytes", "1073741824"));
+
+		Assert.Equal(1073741824L, service.MaxPayloadSizeBytes);
+	}
+
+	[Theory]
+	[InlineData("0")]
+	[InlineData("-5")]
+	public void MaxPayloadSizeBytes_WhenConfiguredNonPositive_FallsBackToDefault(string configured)
+	{
+		var service = CreateDropServiceWithSettings(("ChuckSettings:MaxPayloadSizeBytes", configured));
+
+		Assert.Equal(DropService.DefaultMaxPayloadSizeBytes, service.MaxPayloadSizeBytes);
+	}
+
+	[Fact]
+	public void HasInsufficientStorage_WhenReserveDisabled_ReturnsFalse()
+	{
+		var service = CreateDropServiceWithSettings(("ChuckSettings:MinFreeDiskSpaceBytes", "0"));
+
+		Assert.False(service.HasInsufficientStorage(long.MaxValue / 2));
+	}
+
+	[Fact]
+	public void HasInsufficientStorage_WhenReserveExceedsAnyRealVolume_ReturnsTrue()
+	{
+		var service = CreateDropServiceWithSettings(("ChuckSettings:MinFreeDiskSpaceBytes", long.MaxValue.ToString()));
+
+		Assert.True(service.HasInsufficientStorage(0));
+	}
+
+	[Fact]
+	public void HasInsufficientStorage_WhenIncomingPayloadExceedsFreeSpace_ReturnsTrue()
+	{
+		var service = CreateDropServiceWithSettings(("ChuckSettings:MinFreeDiskSpaceBytes", "1"));
+
+		Assert.True(service.HasInsufficientStorage(long.MaxValue));
+	}
+
+	[Fact]
+	public void HasInsufficientStorage_WhenAmpleSpaceRemains_ReturnsFalse()
+	{
+		var service = CreateDropServiceWithSettings(("ChuckSettings:MinFreeDiskSpaceBytes", "1"));
+
+		Assert.False(service.HasInsufficientStorage(1));
+	}
 }
+

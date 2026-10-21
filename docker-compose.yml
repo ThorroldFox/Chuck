@@ -32,6 +32,19 @@ services:
       # When set, the UI locks and prompts for a passcode before allowing drops or catches.
       # - ChuckSettings__InstancePasscodes=SecretKey123,FamilyKey456
       
+      # Storage safety: uploads are rejected (HTTP 507) if they would leave less than this much
+      # free space (in bytes) on the drops volume. Default 1073741824 = 1GB. Set to 0 to disable.
+      # - ChuckSettings__MinFreeDiskSpaceBytes=1073741824
+      
+      # Optional: Only allow these client IPs / CIDR subnets (comma-separated) to use Chuck.
+      # Everyone else sees an "Access Restricted" screen. Loopback is NOT exempt, and an invalid
+      # entry stops Chuck from starting.
+      # - ChuckSettings__AllowedNetworks=192.168.1.0/24,100.64.0.0/10
+      
+      # Optional: Extra reverse proxies (IPs / CIDR subnets, comma-separated) whose X-Forwarded-For
+      # header is trusted. Loopback and private ranges (10/8, 172.16/12, 192.168/16, fc00::/7) are
+      # always trusted, so you only need this for proxies on public addresses.
+      # - ChuckSettings__TrustedProxies=203.0.113.10      
       # --- Advanced RAM Tuning ---
       # Uncomment to override these default thresholds.
       # - ChuckSettings__RamThresholdBytes=51200

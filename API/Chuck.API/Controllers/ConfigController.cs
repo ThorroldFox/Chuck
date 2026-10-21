@@ -17,17 +17,19 @@ namespace Chuck.API.Controllers;
 public class ConfigController : ControllerBase
 {
 	private readonly IInstanceAuthorisationService _authService;
+	private readonly IDropService _dropService;
 
-	public ConfigController(IInstanceAuthorisationService authService)
+	public ConfigController(IInstanceAuthorisationService authService, IDropService dropService)
 	{
 		_authService = authService;
+		_dropService = dropService;
 	}
 
 	/**
 	 * <summary>
 	 * Queries public configuration parameters of the active Chuck instance.
 	 * </summary>
-	 * <returns>An <see cref="InstanceConfigResponse"/> describing whether the instance requires an access passcode.</returns>
+	 * <returns>An <see cref="InstanceConfigResponse"/> describing whether the instance requires an access passcode and its configured payload size limit.</returns>
 	 * <response code="200">Returns instance configuration status.</response>
 	 */
 	[HttpGet]
@@ -36,7 +38,8 @@ public class ConfigController : ControllerBase
 	{
 		return Ok(new InstanceConfigResponse
 		{
-			IsPasscodeProtected = _authService.IsPasscodeProtectionEnabled
+			IsPasscodeProtected = _authService.IsPasscodeProtectionEnabled,
+			MaxPayloadSizeBytes = _dropService.MaxPayloadSizeBytes
 		});
 	}
 

@@ -11,17 +11,33 @@ namespace Chuck.API.Tests.Controllers;
 public class ConfigControllerTests
 {
 	private readonly IInstanceAuthorisationService _authService = Substitute.For<IInstanceAuthorisationService>();
+	private readonly IDropService _dropService = Substitute.For<IDropService>();
 	private readonly ConfigController _controller;
 
 	public ConfigControllerTests()
 	{
-		_controller = new ConfigController(_authService)
+		_controller = new ConfigController(_authService, _dropService)
 		{
 			ControllerContext = new ControllerContext
 			{
 				HttpContext = new DefaultHttpContext()
 			}
 		};
+	}
+
+	[Fact]
+	public void GetConfig_ReturnsConfiguredMaxPayloadSizeBytes()
+	{
+		// Arrange
+		_dropService.MaxPayloadSizeBytes.Returns(1073741824L);
+
+		// Act
+		var result = _controller.GetConfig();
+
+		// Assert
+		var okResult = Assert.IsType<OkObjectResult>(result);
+		var response = Assert.IsType<InstanceConfigResponse>(okResult.Value);
+		Assert.Equal(1073741824L, response.MaxPayloadSizeBytes);
 	}
 
 	[Fact]

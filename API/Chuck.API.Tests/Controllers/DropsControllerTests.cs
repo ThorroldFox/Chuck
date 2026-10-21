@@ -3,6 +3,7 @@ using Chuck.API.Models;
 using Chuck.API.Models.Responses;
 using Chuck.API.Models.Results;
 using Chuck.API.Orchestrators;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using NSubstitute;
@@ -35,6 +36,24 @@ public class DropsControllerTests
 		var badRequest = Assert.IsType<BadRequestObjectResult>(result);
 		var response = Assert.IsType<MessageResponse>(badRequest.Value);
 		Assert.Equal("Payload cannot be completely empty.", response.Message);
+	}
+
+	[Fact]
+	public async Task CreateDrop_WhenInsufficientStorage_Returns507WithMessage()
+	{
+		// Arrange
+		var request = new DropRequest();
+		_orchestrator.ProcessUploadAsync(request)
+			.Returns(ProcessUploadResult.Failed("No space.", UploadFailureReason.InsufficientStorage));
+
+		// Act
+		var result = await _controller.CreateDrop(request);
+
+		// Assert
+		var statusResult = Assert.IsType<ObjectResult>(result);
+		Assert.Equal(StatusCodes.Status507InsufficientStorage, statusResult.StatusCode);
+		var response = Assert.IsType<MessageResponse>(statusResult.Value);
+		Assert.Equal("No space.", response.Message);
 	}
 
 	[Fact]

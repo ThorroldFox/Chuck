@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TransferHub } from "../components/TransferHub";
 
@@ -409,6 +409,107 @@ describe("TransferHub", () => {
 			createObjectUrlSpy.mockRestore();
 			revokeObjectUrlSpy.mockRestore();
 		}
+	});
+
+	it("enforces the instance's configured payload limit and reports it in the error message", async () => {
+		const user = userEvent.setup();
+		const sendSpy = vi.fn();
+		const OriginalXHR = globalThis.XMLHttpRequest;
+		class MockXHR {
+			upload = { onprogress: null as any };
+			open = vi.fn();
+			setRequestHeader = vi.fn();
+			send = sendSpy;
+		}
+		globalThis.XMLHttpRequest = MockXHR as any;
+
+		try {
+			// Instance configured with a 1 KB limit
+			render(<TransferHub maxPayloadSizeBytes={1024} />);
+
+			const fileInput = document.getElementById(
+				"file-input",
+			) as HTMLInputElement;
+			fireEvent.change(fileInput, {
+				target: {
+					files: [
+						new File([new Uint8Array(2048)], "big.bin", {
+							type: "application/octet-stream",
+						}),
+					],
+				},
+			});
+
+			await user.click(
+				screen.getByRole("button", { name: /chuck it/i }),
+			);
+
+			expect(
+				await screen.findByText(/exceeds the 1 KB limit/i),
+			).toBeInTheDocument();
+			expect(sendSpy).not.toHaveBeenCalled();
+		} finally {
+			globalThis.XMLHttpRequest = OriginalXHR;
+		}
+	});
+
+	it("notifies the parent when an upload is rejected by the network policy (HTTP 403)", async () => {
+		const user = userEvent.setup();
+		const onNetworkRestricted = vi.fn();
+		const OriginalXHR = globalThis.XMLHttpRequest;
+		class MockXHR {
+			status = 403;
+			responseText = JSON.stringify({
+				code: "network_restricted",
+				message: "Access to this Chuck instance is restricted by network policy.",
+			});
+			upload = { onprogress: null as any };
+			onload: (() => void) | null = null;
+			onerror: (() => void) | null = null;
+			open = vi.fn();
+			setRequestHeader = vi.fn();
+			send = vi.fn(() => {
+				if (this.onload) this.onload();
+			});
+		}
+		globalThis.XMLHttpRequest = MockXHR as any;
+
+		try {
+			render(<TransferHub onNetworkRestricted={onNetworkRestricted} />);
+
+			await user.type(
+				screen.getByPlaceholderText(/paste text here/i),
+				"Blocked payload",
+			);
+			await user.click(
+				screen.getByRole("button", { name: /chuck it/i }),
+			);
+
+			await waitFor(() => {
+				expect(onNetworkRestricted).toHaveBeenCalledTimes(1);
+			});
+		} finally {
+			globalThis.XMLHttpRequest = OriginalXHR;
+		}
+	});
+
+	it("notifies the parent when retrieval is rejected by the network policy (HTTP 403)", async () => {
+		const user = userEvent.setup();
+		const onNetworkRestricted = vi.fn();
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: false,
+			status: 403,
+			json: async () => ({ code: "network_restricted" }),
+		} as Response);
+
+		render(<TransferHub onNetworkRestricted={onNetworkRestricted} />);
+
+		await user.click(screen.getByRole("tab", { name: /retrieve/i }));
+		await user.type(screen.getByPlaceholderText("e.g. 1234"), "1234{Enter}");
+
+		await waitFor(() => {
+			expect(onNetworkRestricted).toHaveBeenCalledTimes(1);
+		});
 	});
 });
 

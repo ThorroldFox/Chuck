@@ -17,6 +17,7 @@ import { NavigationDrawer } from "./components/NavigationDrawer";
 import { PasscodeLockModal } from "./components/PasscodeLockModal";
 import { OfflineCard } from "./components/OfflineCard";
 import { RateLimitCard } from "./components/RateLimitCard";
+import { NetworkRestrictedCard } from "./components/NetworkRestrictedCard";
 import { getStoredPasscode, clearStoredPasscode } from "./utils/passcodeUtils";
 
 const darkTheme = createTheme({
@@ -35,6 +36,9 @@ const darkTheme = createTheme({
 	},
 });
 
+// Mirrors the server default (ChuckSettings:MaxPayloadSizeBytes) until /api/config reports the instance's real limit
+const DEFAULT_MAX_PAYLOAD_SIZE_BYTES = 524288000;
+
 export default function App() {
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [isPasscodeProtected, setIsPasscodeProtected] = useState(false);
@@ -43,6 +47,10 @@ export default function App() {
 	const [lockModalOpen, setLockModalOpen] = useState(false);
 	const [isServerUnreachable, setIsServerUnreachable] = useState(false);
 	const [isRateLimited, setIsRateLimited] = useState(false);
+	const [isNetworkRestricted, setIsNetworkRestricted] = useState(false);
+	const [maxPayloadSizeBytes, setMaxPayloadSizeBytes] = useState(
+		DEFAULT_MAX_PAYLOAD_SIZE_BYTES,
+	);
 	const [isRetrying, setIsRetrying] = useState(false);
 
 	const checkConnection = useCallback(async (isManualRetry = false) => {
@@ -53,6 +61,15 @@ export default function App() {
 			const res = await fetch("/api/config");
 			if (res.status === 429) {
 				setIsRateLimited(true);
+				setIsNetworkRestricted(false);
+				setIsServerUnreachable(false);
+				setLockModalOpen(false);
+				return;
+			}
+			if (res.status === 403) {
+				// ChuckSettings:AllowedNetworks rejected this visitor's network
+				setIsNetworkRestricted(true);
+				setIsRateLimited(false);
 				setIsServerUnreachable(false);
 				setLockModalOpen(false);
 				return;
@@ -63,6 +80,15 @@ export default function App() {
 			const data = await res.json();
 			setIsServerUnreachable(false);
 			setIsRateLimited(false);
+			setIsNetworkRestricted(false);
+
+			if (
+				data &&
+				typeof data.maxPayloadSizeBytes === "number" &&
+				data.maxPayloadSizeBytes > 0
+			) {
+				setMaxPayloadSizeBytes(data.maxPayloadSizeBytes);
+			}
 
 			if (data && data.isPasscodeProtected) {
 				setIsPasscodeProtected(true);
@@ -81,6 +107,7 @@ export default function App() {
 			}
 		} catch {
 			setIsRateLimited(false);
+			setIsNetworkRestricted(false);
 			setIsServerUnreachable(true);
 			setLockModalOpen(false);
 		} finally {
@@ -97,12 +124,12 @@ export default function App() {
 
 	// Auto-retry connection every 5 seconds if server is unreachable (do not poll when rate limited)
 	useEffect(() => {
-		if (!isServerUnreachable || isRateLimited) return;
+		if (!isServerUnreachable || isRateLimited || isNetworkRestricted) return;
 		const interval = setInterval(() => {
 			checkConnection();
 		}, 5000);
 		return () => clearInterval(interval);
-	}, [isServerUnreachable, isRateLimited, checkConnection]);
+	}, [isServerUnreachable, isRateLimited, isNetworkRestricted, checkConnection]);
 
 	const handleLockInstance = () => {
 		clearStoredPasscode();
@@ -112,6 +139,12 @@ export default function App() {
 
 	const handleRateLimited = useCallback(() => {
 		setIsRateLimited(true);
+		setIsServerUnreachable(false);
+		setLockModalOpen(false);
+	}, []);
+
+	const handleNetworkRestricted = useCallback(() => {
+		setIsNetworkRestricted(true);
 		setIsServerUnreachable(false);
 		setLockModalOpen(false);
 	}, []);
@@ -218,6 +251,11 @@ export default function App() {
 						onRetry={() => checkConnection(true)}
 						isRetrying={isRetrying}
 					/>
+				) : isNetworkRestricted ? (
+					<NetworkRestrictedCard
+						onRetry={() => checkConnection(true)}
+						isRetrying={isRetrying}
+					/>
 				) : isServerUnreachable ? (
 					<OfflineCard
 						onRetry={() => checkConnection(true)}
@@ -227,6 +265,8 @@ export default function App() {
 					<TransferHub
 						onUnauthorized={handleLockInstance}
 						onRateLimited={handleRateLimited}
+						onNetworkRestricted={handleNetworkRestricted}
+						maxPayloadSizeBytes={maxPayloadSizeBytes}
 						isUnlocked={isConfigLoaded && isUnlocked}
 					/>
 				)}

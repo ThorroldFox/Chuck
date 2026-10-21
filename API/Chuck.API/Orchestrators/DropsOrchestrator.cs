@@ -34,14 +34,23 @@ public class DropsOrchestrator : IDropsOrchestrator
 			return ProcessUploadResult.Failed("Expiry duration for anonymous drops must be between 1 and 30 minutes.");
 		}
 
-		// Sum the sizes of request.Files to ensure it doesn't breach the dynamic 500MB quota
+		// Sum the sizes of request.Files to ensure it doesn't breach the configured payload quota (ChuckSettings:MaxPayloadSizeBytes)
+		long totalSizeBytes = 0;
 		if (hasFiles)
 		{
-			long totalSizeBytes = request.Files!.Sum(f => f.Length);
-			if (totalSizeBytes > 524288000)
+			totalSizeBytes = request.Files!.Sum(f => f.Length);
+			if (totalSizeBytes > _dropService.MaxPayloadSizeBytes)
 			{
-				return ProcessUploadResult.Failed("Total file size exceeds the 500MB limit.");
+				return ProcessUploadResult.Failed($"Total file size exceeds the {FormatByteLimit(_dropService.MaxPayloadSizeBytes)} limit.");
 			}
+		}
+
+		// Pre-flight disk space guard: refuse uploads that would erode the host's free space reserve (HTTP 507)
+		if (_dropService.HasInsufficientStorage(totalSizeBytes))
+		{
+			return ProcessUploadResult.Failed(
+				"Chuck does not have enough free disk space to accept this upload right now.",
+				UploadFailureReason.InsufficientStorage);
 		}
 
 		try
@@ -82,12 +91,12 @@ public class DropsOrchestrator : IDropsOrchestrator
 			return FileDownloadResult.Failed("File not found in this drop.");
 		}
 
-		if (!_dropService.PayloadFileExists(fileId))
+		if (!_dropService.PayloadFileExists(fileMeta.Id))
 		{
 			return FileDownloadResult.Failed("File no longer exists on the server.");
 		}
 
-		var path = _dropService.GetPhysicalFilePath(fileId);
+		var path = _dropService.GetPhysicalFilePath(fileMeta.Id);
 
 		// Extend the TTL on download retrieval
 		_dropService.ExtendDropTtl(pin);
@@ -128,5 +137,26 @@ public class DropsOrchestrator : IDropsOrchestrator
 	public bool CancelDrop(int pin, string? token)
 	{
 		return _dropService.DeleteDrop(pin, token);
+	}
+
+	/// <summary>
+	/// Renders a byte ceiling as a compact human-readable limit (e.g. 524288000 becomes "500MB", 1073741824 becomes "1GB").
+	/// </summary>
+	private static string FormatByteLimit(long bytes)
+	{
+		const long mebibyte = 1024L * 1024;
+		const long gibibyte = mebibyte * 1024;
+
+		if (bytes >= gibibyte && bytes % gibibyte == 0)
+		{
+			return $"{bytes / gibibyte}GB";
+		}
+
+		if (bytes >= mebibyte)
+		{
+			return $"{Math.Round((double)bytes / mebibyte, 2).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}MB";
+		}
+
+		return $"{bytes} bytes";
 	}
 }

@@ -2,6 +2,14 @@
 
 All notable changes to **Chuck** are documented in this file.
 
+## [v1.0.6] - Vigilant Courier (20/10/2026)
+
+- Inline Image Preview & One-Click Clipboard Copy: Added previews for retrieved images (PNG, JPEG, WebP, GIF, BMP, AVIF) with a dedicated "Copy Image" action, allowing screenshots to be viewed and copied straight to the clipboard without saving to the Downloads folder.
+- Dynamic Payload Size Enforcement: Synchronised the frontend upload quota with the server's configured ChuckSettings__MaxPayloadSizeBytes via /api/config, dynamically displaying and enforcing custom instance upload limits.
+- Pre-Flight Storage Protection (HTTP 507): Introduced a pre-flight disk space ceiling (ChuckSettings__MinFreeDiskSpaceBytes, default 1 GB) that rejects incoming uploads with HTTP 507 Insufficient Storage if staging the payload would compromise host disk headroom.
+- Network Access Controls & Reverse Proxy Overrides: Added optional client IP and CIDR subnet whitelisting (ChuckSettings__AllowedNetworks) paired with a dedicated "Access Restricted" screen, alongside custom reverse proxy overrides (ChuckSettings__TrustedProxies) for proxies operating outside RFC 1918 private subnets.
+- Security & Code Scanning Hardening.
+
 ## [v1.0.5] - Clockwork Courier (19/10/2026)
 
 - Sender-Selectable Ephemeral Expiry Windows: Added an "Auto-burn after:" duration selector on the Drop tab, allowing senders to choose between 5, 10, or 30-minute lifetimes for anonymous drops while enforcing server-side bounds (1–30 minutes).

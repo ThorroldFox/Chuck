@@ -1,4 +1,5 @@
 using Chuck.API.Models;
+using Chuck.API.Models.Results;
 using Chuck.API.Orchestrators;
 using Chuck.API.Services;
 using Microsoft.AspNetCore.Http;
@@ -14,6 +15,7 @@ public class DropsOrchestratorTests
 
 	public DropsOrchestratorTests()
 	{
+		_dropService.MaxPayloadSizeBytes.Returns(524288000L);
 		_orchestrator = new DropsOrchestrator(_dropService);
 	}
 
@@ -74,7 +76,99 @@ public class DropsOrchestratorTests
 		// Assert
 		Assert.False(result.Success);
 		Assert.Equal("Total file size exceeds the 500MB limit.", result.Message);
+		Assert.Equal(UploadFailureReason.InvalidRequest, result.FailureReason);
 		await _dropService.DidNotReceive().CreateDropAsync(Arg.Any<DropRequest>());
+	}
+
+	[Theory]
+	[InlineData(1073741824L, 1073741825L, "1GB")]
+	[InlineData(2147483648L, 2147483649L, "2GB")]
+	[InlineData(104857600L, 104857601L, "100MB")]
+	[InlineData(1572864L, 1572865L, "1.5MB")]
+	public async Task ProcessUploadAsync_WhenConfiguredQuotaIsExceeded_ReportsConfiguredLimitInMessage(long configuredLimit, long fileSize, string expectedLimitText)
+	{
+		// Arrange
+		_dropService.MaxPayloadSizeBytes.Returns(configuredLimit);
+		var oversizedFile = Substitute.For<IFormFile>();
+		oversizedFile.Length.Returns(fileSize);
+
+		var request = new DropRequest
+		{
+			Files = new FormFileCollection { oversizedFile }
+		};
+
+		// Act
+		var result = await _orchestrator.ProcessUploadAsync(request);
+
+		// Assert
+		Assert.False(result.Success);
+		Assert.Equal($"Total file size exceeds the {expectedLimitText} limit.", result.Message);
+		await _dropService.DidNotReceive().CreateDropAsync(Arg.Any<DropRequest>());
+	}
+
+	[Fact]
+	public async Task ProcessUploadAsync_WhenFileSizeEqualsConfiguredQuota_IsAccepted()
+	{
+		// Arrange
+		_dropService.MaxPayloadSizeBytes.Returns(1048576L);
+		var exactFile = Substitute.For<IFormFile>();
+		exactFile.Length.Returns(1048576L);
+
+		var request = new DropRequest
+		{
+			Files = new FormFileCollection { exactFile }
+		};
+		_dropService.CreateDropAsync(request).Returns((4321, "burn-token"));
+
+		// Act
+		var result = await _orchestrator.ProcessUploadAsync(request);
+
+		// Assert
+		Assert.True(result.Success);
+		Assert.Equal(4321, result.Pin);
+	}
+
+	[Fact]
+	public async Task ProcessUploadAsync_WhenStorageReserveWouldBeBreached_ReturnsInsufficientStorageFailure()
+	{
+		// Arrange
+		var file = Substitute.For<IFormFile>();
+		file.Length.Returns(2048L);
+		var request = new DropRequest
+		{
+			Files = new FormFileCollection { file }
+		};
+		_dropService.HasInsufficientStorage(2048L).Returns(true);
+
+		// Act
+		var result = await _orchestrator.ProcessUploadAsync(request);
+
+		// Assert
+		Assert.False(result.Success);
+		Assert.Equal(UploadFailureReason.InsufficientStorage, result.FailureReason);
+		Assert.Contains("free disk space", result.Message);
+		await _dropService.DidNotReceive().CreateDropAsync(Arg.Any<DropRequest>());
+	}
+
+	[Fact]
+	public async Task ProcessUploadAsync_WhenValidRequest_ChecksStorageAgainstTotalIncomingBytes()
+	{
+		// Arrange
+		var fileA = Substitute.For<IFormFile>();
+		fileA.Length.Returns(1000L);
+		var fileB = Substitute.For<IFormFile>();
+		fileB.Length.Returns(2000L);
+		var request = new DropRequest
+		{
+			Files = new FormFileCollection { fileA, fileB }
+		};
+		_dropService.CreateDropAsync(request).Returns((1111, "token"));
+
+		// Act
+		await _orchestrator.ProcessUploadAsync(request);
+
+		// Assert
+		_dropService.Received(1).HasInsufficientStorage(3000L);
 	}
 
 	[Fact]

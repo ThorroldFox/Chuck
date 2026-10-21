@@ -37,7 +37,8 @@ import { getStoredPasscode } from "../utils/passcodeUtils";
 import { RetrievedFileRow } from "./RetrievedFileRow";
 
 const API_BASE_URL = "/api/drops";
-const MAX_FILE_SIZE_BYTES = 524288000; // 500MB
+// Fallback used until the instance reports its configured ChuckSettings:MaxPayloadSizeBytes via /api/config
+const DEFAULT_MAX_FILE_SIZE_BYTES = 524288000; // 500MB
 const MAX_TEXT_LENGTH = 100000;
 const ANONYMOUS_EXPIRY_OPTIONS = [5, 10, 30] as const;
 
@@ -69,12 +70,16 @@ const parseUtcExpiryMs = (
 export interface TransferHubProps {
 	onUnauthorized?: () => void;
 	onRateLimited?: () => void;
+	onNetworkRestricted?: () => void;
+	maxPayloadSizeBytes?: number;
 	isUnlocked?: boolean;
 }
 
 export function TransferHub({
 	onUnauthorized,
 	onRateLimited,
+	onNetworkRestricted,
+	maxPayloadSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES,
 	isUnlocked = true,
 }: TransferHubProps = {}) {
 	const [tabIndex, setTabIndex] = useState(0);
@@ -248,9 +253,9 @@ export function TransferHub({
 
 	const handleDropSubmit = async () => {
 		const totalSize = files.reduce((acc, file) => acc + file.size, 0);
-		if (totalSize > MAX_FILE_SIZE_BYTES) {
+		if (totalSize > maxPayloadSizeBytes) {
 			setError(
-				`Total payload exceeds the 500MB limit. You are trying to upload ${formatBytes(totalSize)}.`,
+				`Total payload exceeds the ${formatBytes(maxPayloadSizeBytes)} limit. You are trying to upload ${formatBytes(totalSize)}.`,
 			);
 			return;
 		}
@@ -305,6 +310,15 @@ export function TransferHub({
 					} else {
 						if (xhr.status === 401) {
 							onUnauthorized?.();
+						}
+						if (xhr.status === 403) {
+							onNetworkRestricted?.();
+							reject(
+								new Error(
+									"Access to this Chuck instance is restricted by network policy.",
+								),
+							);
+							return;
 						}
 						if (xhr.status === 429) {
 							onRateLimited?.();
@@ -453,6 +467,12 @@ export function TransferHub({
 						pendingUrlPinRef.current = targetPin;
 						onUnauthorized?.();
 					}
+					if (response.status === 403) {
+						onNetworkRestricted?.();
+						throw new Error(
+							"Access to this Chuck instance is restricted by network policy.",
+						);
+					}
 					if (response.status === 429) {
 						onRateLimited?.();
 						throw new Error(
@@ -474,7 +494,7 @@ export function TransferHub({
 				setIsLoading(false);
 			}
 		},
-		[onUnauthorized, onRateLimited],
+		[onUnauthorized, onRateLimited, onNetworkRestricted],
 	);
 
 	useEffect(() => {

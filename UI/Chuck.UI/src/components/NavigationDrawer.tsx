@@ -113,7 +113,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 									CHUCK
 								</Typography>
 								<Chip
-									label="v1.0.5"
+									label="v1.0.6"
 									size="small"
 									variant="outlined"
 									color="primary"
@@ -340,7 +340,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 						color="text.secondary"
 						sx={{ display: "block" }}
 					>
-						Chuck v1.0.5 • Clockwork Courier
+						Chuck v1.0.6 • Vigilant Courier
 					</Typography>
 					<Typography
 						variant="caption"

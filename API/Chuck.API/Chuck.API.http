@@ -5,7 +5,11 @@
 
 @passcode = SecretCode123
 
-### 0. Query Instance Security Configuration
+### 0. Query Instance Configuration
+# Returns { "isPasscodeProtected": bool, "maxPayloadSizeBytes": long } so clients can enforce the instance's configured upload limit
+# (ChuckSettings__MaxPayloadSizeBytes) instead of assuming a hardcoded value.
+# If ChuckSettings__AllowedNetworks is configured and your client address is not covered, every /api route (this one included)
+# responds 403 { "code": "network_restricted", "message": "..." }.
 GET {{Chuck.API_HostAddress}}/api/config
 Accept: application/json
 
@@ -22,6 +26,9 @@ POST {{Chuck.API_HostAddress}}/api/config/verify
 X-Instance-Passcode: {{passcode}}
 
 ### 1. Create a Drop (Multipart: Text Payload, Expiry Duration & Attached File)
+# 201 Created           -> { pin, expiresInMinutes, expiresAt, burnToken }
+# 400 Bad Request       -> empty payload, text over 100,000 characters, files over ChuckSettings__MaxPayloadSizeBytes, or malware detected
+# 507 Insufficient Storage -> accepting the upload would leave less than ChuckSettings__MinFreeDiskSpaceBytes free on the storage volume (default 1 GB; 0 disables)
 POST {{Chuck.API_HostAddress}}/api/drops
 X-Instance-Passcode: {{passcode}}
 Content-Type: multipart/form-data; boundary=boundary

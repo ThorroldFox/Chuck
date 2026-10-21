@@ -50,7 +50,14 @@ public sealed class ProcessUploadResult
 	 */
 	public string Message { get; }
 
-	private ProcessUploadResult(bool success, int pin, int? expiresInMinutes, DateTime? expiresAt, string? burnToken, string message)
+	/**
+	 * <summary>
+	 * Categorises the rejection reason on failure (used to select the HTTP status code), or <see cref="UploadFailureReason.None"/> on success.
+	 * </summary>
+	 */
+	public UploadFailureReason FailureReason { get; }
+
+	private ProcessUploadResult(bool success, int pin, int? expiresInMinutes, DateTime? expiresAt, string? burnToken, string message, UploadFailureReason failureReason)
 	{
 		Success = success;
 		Pin = pin;
@@ -58,6 +65,7 @@ public sealed class ProcessUploadResult
 		ExpiresAt = expiresAt;
 		BurnToken = burnToken;
 		Message = message;
+		FailureReason = failureReason;
 	}
 
 	/**
@@ -71,16 +79,17 @@ public sealed class ProcessUploadResult
 	 * <returns>A populated successful <see cref="ProcessUploadResult"/> instance.</returns>
 	 */
 	public static ProcessUploadResult Succeeded(int pin, string burnToken, int expiresInMinutes = 10, DateTime? expiresAt = null) =>
-		new(true, pin, expiresInMinutes, expiresAt, burnToken, "Drop created successfully.");
+		new(true, pin, expiresInMinutes, expiresAt, burnToken, "Drop created successfully.", UploadFailureReason.None);
 
 	/**
 	 * <summary>
 	 * Creates a failed upload result detailing the specific error or rejection reason.
 	 * </summary>
 	 * <param name="message">The failure explanation.</param>
+	 * <param name="failureReason">The failure category used to select the HTTP status code (defaults to <see cref="UploadFailureReason.InvalidRequest"/>).</param>
 	 * <returns>A populated failure <see cref="ProcessUploadResult"/> instance.</returns>
 	 */
-	public static ProcessUploadResult Failed(string message) =>
-		new(false, 0, null, null, null, message);
+	public static ProcessUploadResult Failed(string message, UploadFailureReason failureReason = UploadFailureReason.InvalidRequest) =>
+		new(false, 0, null, null, null, message, failureReason);
 }
 

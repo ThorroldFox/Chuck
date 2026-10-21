@@ -22,6 +22,22 @@ public class DropService : IDropService
 	private readonly string _clamAvHost;
 	private readonly int _clamAvPort;
 
+	private readonly long _minFreeDiskSpaceBytes;
+
+	/**
+	 * <summary>
+	 * Default combined file size ceiling for a single drop (500 MB) applied when <c>ChuckSettings:MaxPayloadSizeBytes</c> is unset or invalid.
+	 * </summary>
+	 */
+	public const long DefaultMaxPayloadSizeBytes = 524288000;
+
+	/**
+	 * <summary>
+	 * Default free disk space reserve (1 GB) that must remain on the storage volume after staging an upload.
+	 * </summary>
+	 */
+	public const long DefaultMinFreeDiskSpaceBytes = 1073741824;
+
 	private const int ExpiryMinutes = 10;
 	private const int MinExpiryMinutes = 1;
 	private const int MaxAnonymousExpiryMinutes = 30;
@@ -50,9 +66,45 @@ public class DropService : IDropService
 		_clamAvHost = _config.GetValue<string>("ChuckSettings:ClamAvHost") ?? "localhost";
 		_clamAvPort = _config.GetValue("ChuckSettings:ClamAvPort", 3310);
 
+		long configuredMaxPayload = _config.GetValue("ChuckSettings:MaxPayloadSizeBytes", DefaultMaxPayloadSizeBytes);
+		MaxPayloadSizeBytes = configuredMaxPayload > 0 ? configuredMaxPayload : DefaultMaxPayloadSizeBytes;
+
+		// A value of 0 (or below) explicitly disables the free disk space reserve check.
+		_minFreeDiskSpaceBytes = _config.GetValue("ChuckSettings:MinFreeDiskSpaceBytes", DefaultMinFreeDiskSpaceBytes);
+
 		if (!Directory.Exists(_diskStoragePath))
 		{
 			Directory.CreateDirectory(_diskStoragePath);
+		}
+	}
+
+	/** <inheritdoc /> */
+	public long MaxPayloadSizeBytes { get; }
+
+	/** <inheritdoc /> */
+	public bool HasInsufficientStorage(long incomingBytes)
+	{
+		if (_minFreeDiskSpaceBytes <= 0)
+		{
+			return false;
+		}
+
+		try
+		{
+			// Windows DriveInfo requires a drive root; Unix resolves the filesystem backing the supplied path
+			// (important in Docker, where the drops directory is usually a separate bind mount).
+			string driveName = OperatingSystem.IsWindows()
+				? Path.GetPathRoot(_diskStoragePath)!
+				: _diskStoragePath;
+
+			long availableBytes = new DriveInfo(driveName).AvailableFreeSpace;
+			return availableBytes - Math.Max(0, incomingBytes) < _minFreeDiskSpaceBytes;
+		}
+		catch (Exception ex)
+		{
+			// Fail open: an unreadable volume must not brick uploads on exotic filesystems.
+			_logger.LogWarning(ex, "Unable to determine free disk space for {StoragePath}; skipping storage reserve check.", _diskStoragePath);
+			return false;
 		}
 	}
 
@@ -215,8 +267,8 @@ public class DropService : IDropService
 			var fileMeta = payload.Files.FirstOrDefault(f => f.Id == fileId);
 			if (fileMeta != null)
 			{
-				// Delete from disk
-				string path = GetPhysicalFilePath(fileId);
+				// Delete from disk using the server-owned file metadata identifier
+				string path = GetPhysicalFilePath(fileMeta.Id);
 				if (File.Exists(path))
 				{
 					try { File.Delete(path); } catch { return false; }

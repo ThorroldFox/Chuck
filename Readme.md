@@ -25,7 +25,10 @@ There are no user accounts, no tracking cookies, and no permanent database overh
 * **Instant Enter Key Catching:** Immediately retrieve payloads upon pressing Enter after entering your 4-digit PIN with full IME and mobile keyboard support.
 * **Stateless & Cookie-Less:** Built to respect privacy. Chuck doesn't track IP addresses, require logins, or store tracking cookies in your browser.
 * **Integrated Antivirus Scanning:** Built-in ClamAV integration to detect and reject malware before payloads can be caught.
-* **Dynamic Storage Protection:** Built-in safeguards automatically restrict upload sizes if your server starts running low on disk space, preventing abuse.
+* **Dynamic Storage Protection:** Uploads are rejected with HTTP 507 (Insufficient Storage) whenever accepting them would leave your server with less than a configurable free-disk-space reserve (1 GB by default), preventing a full disk.
+* **Instance-Aware Upload Limits:** The web UI automatically adopts your configured `ChuckSettings__MaxPayloadSizeBytes` limit, so the size shown and enforced in the browser always matches the server.
+* **Image Preview & One-Click Copy:** Preview retrieved screenshots and photos inline and copy them straight to your clipboard without saving anything to your Downloads folder (clipboard copy requires HTTPS or `localhost`).
+* **Network Access Controls:** Optionally restrict Chuck to specific client IP addresses or CIDR subnets (`ChuckSettings__AllowedNetworks`) and trust additional reverse proxies (`ChuckSettings__TrustedProxies`).
 
 ---
 
@@ -57,11 +60,11 @@ docker compose up -d
 
 ### Option 2: Offline / Air-Gapped Deployment (`.tar` Release Archive)
 
-For private homelabs or air-gapped servers without registry access, standalone container archives are attached to each [GitHub Release](https://github.com/ThorroldFox/Chuck/releases). Transfer `docker-compose.yml` and `chuck-v1.0.5.tar` to your server, then run:
+For private homelabs or air-gapped servers without registry access, standalone container archives are attached to each [GitHub Release](https://github.com/ThorroldFox/Chuck/releases). Transfer `docker-compose.yml` and `chuck-v1.0.6.tar` to your server, then run:
 
 ```bash
 # 1. Load the standalone Chuck image into Docker
-docker load -i chuck-v1.0.5.tar
+docker load -i chuck-v1.0.6.tar
 
 # 2. Launch Chuck and ClamAV in the background
 docker compose up -d
@@ -123,6 +126,13 @@ volumes:
 | `ChuckSettings__ClamAvHost` | `clamav` | Hostname of the ClamAV container service. |
 | `ChuckSettings__ClamAvPort` | `3310` | Port of the ClamAV daemon. |
 | `ChuckSettings__InstancePasscodes` | *(None)* | Optional comma-separated passcodes to lock down instance access. |
+| `ChuckSettings__MinFreeDiskSpaceBytes` | `1073741824` | Free disk space (in bytes) that must remain on the storage volume after an upload. Uploads that would breach it are rejected with HTTP 507. Set to `0` to disable. |
+| `ChuckSettings__AllowedNetworks` | *(None)* | Optional comma-separated client IP addresses and/or CIDR subnets permitted to use the instance (e.g. `192.168.1.0/24,100.64.0.0/10,203.0.113.7`). Visitors outside the list see an "Access Restricted" screen. Loopback is **not** exempt. Invalid entries stop Chuck from starting. |
+| `ChuckSettings__TrustedProxies` | *(None)* | Optional comma-separated IP addresses and/or CIDR subnets of additional reverse proxies whose `X-Forwarded-For` header is trusted. Loopback and private (RFC 1918 / IPv6 ULA) ranges are always trusted; list only proxies outside those ranges. |
+
+#### Restricting access by network
+
+If you use `ChuckSettings__AllowedNetworks` behind a reverse proxy, Chuck evaluates the client address reported by the proxy via `X-Forwarded-For`. Proxies on private or loopback addresses (the usual Docker or LAN setup) are trusted automatically; add any other proxy to `ChuckSettings__TrustedProxies`, otherwise Chuck sees only the proxy's address. Only `/api` routes are blocked: the web page itself is still served so that restricted visitors can be told why they cannot proceed.
 
 ---
 

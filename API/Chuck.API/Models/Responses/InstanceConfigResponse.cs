@@ -13,4 +13,12 @@ public class InstanceConfigResponse
 	 * </summary>
 	 */
 	public bool IsPasscodeProtected { get; set; }
+
+	/**
+	 * <summary>
+	 * The maximum combined size in bytes of all files permitted in a single drop, so clients can enforce and display the
+	 * instance's configured limit (<c>ChuckSettings:MaxPayloadSizeBytes</c>) instead of assuming a hardcoded value.
+	 * </summary>
+	 */
+	public long MaxPayloadSizeBytes { get; set; }
 }
