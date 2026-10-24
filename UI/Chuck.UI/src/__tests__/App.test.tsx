@@ -20,7 +20,7 @@ describe("App network policy and instance configuration handling", () => {
 		globalThis.fetch = originalFetch;
 	});
 
-	it("shows the Access Restricted card when /api/config responds with HTTP 403", async () => {
+	it("shows the Access Restricted card when /api/v1/config responds with HTTP 403", async () => {
 		globalThis.fetch = mockConfigResponse(403, {
 			code: "network_restricted",
 		});
@@ -64,7 +64,7 @@ describe("App network policy and instance configuration handling", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
-	it("renders the transfer hub when /api/config succeeds", async () => {
+	it("renders the transfer hub when /api/v1/config succeeds", async () => {
 		globalThis.fetch = mockConfigResponse(200, {
 			isPasscodeProtected: false,
 			maxPayloadSizeBytes: 1073741824,

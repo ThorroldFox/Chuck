@@ -27,6 +27,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ContentPasteIcon from "@mui/icons-material/ContentPaste";
 import DownloadIcon from "@mui/icons-material/Download";
 import DeleteIcon from "@mui/icons-material/Delete";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import LinkIcon from "@mui/icons-material/Link";
 import LocalFireDepartmentIcon from "@mui/icons-material/LocalFireDepartment";
 import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
@@ -36,7 +37,7 @@ import { getFileIcon, extractDroppedFiles } from "../utils/fileUtils";
 import { getStoredPasscode } from "../utils/passcodeUtils";
 import { RetrievedFileRow } from "./RetrievedFileRow";
 
-const API_BASE_URL = "/api/drops";
+const API_BASE_URL = "/api/v1/drops";
 // Fallback used until the instance reports its configured ChuckSettings:MaxPayloadSizeBytes via /api/config
 const DEFAULT_MAX_FILE_SIZE_BYTES = 524288000; // 500MB
 const MAX_TEXT_LENGTH = 100000;
@@ -66,6 +67,24 @@ const parseUtcExpiryMs = (
 	}
 	return Date.now() + fallbackMinutes * 60 * 1000;
 };
+
+/**
+ * Thumbnail avatar for staged image files. Safely allocates and revokes an in-memory
+ * object URL to prevent browser memory leaks during editing or countdown re-renders.
+ */
+function StagedImageAvatar({ file }: { file: File }) {
+	const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+	useEffect(() => {
+		const url = URL.createObjectURL(file);
+		setObjectUrl(url);
+		return () => {
+			URL.revokeObjectURL(url);
+		};
+	}, [file]);
+
+	return <Avatar src={objectUrl || undefined} variant="rounded" />;
+}
 
 export interface TransferHubProps {
 	onUnauthorized?: () => void;
@@ -102,6 +121,8 @@ export function TransferHub({
 	);
 	const [pinCopied, setPinCopied] = useState(false);
 	const [linkCopied, setLinkCopied] = useState(false);
+	const [isRetrievedByRecipient, setIsRetrievedByRecipient] = useState(false);
+	const [isBurntByRecipient, setIsBurntByRecipient] = useState(false);
 
 	// RETRIEVE State
 	const [pin, setPin] = useState("");
@@ -139,6 +160,8 @@ export function TransferHub({
 		setCancelSuccessMsg(null);
 		setPinCopied(false);
 		setLinkCopied(false);
+		setIsRetrievedByRecipient(false);
+		setIsBurntByRecipient(false);
 		setRetrievedData(null);
 		setRetrievedExpiresAt(null);
 		setRetrievedRemainingSeconds(null);
@@ -163,6 +186,8 @@ export function TransferHub({
 				setBurnToken(null);
 				setDropExpiresAt(null);
 				setDropRemainingSeconds(null);
+				setIsRetrievedByRecipient(false);
+				setIsBurntByRecipient(false);
 				setCancelSuccessMsg(
 					"Drop expired and was automatically purged from the server.",
 				);
@@ -175,6 +200,39 @@ export function TransferHub({
 		const timerId = window.setInterval(updateCountdown, 1000);
 		return () => window.clearInterval(timerId);
 	}, [generatedPin, dropExpiresAt]);
+
+	useEffect(() => {
+		if (!generatedPin || !burnToken || isBurntByRecipient) {
+			return;
+		}
+
+		const pollStatus = async () => {
+			try {
+				const passcode = getStoredPasscode();
+				const headers: Record<string, string> = {};
+				if (passcode) {
+					headers["X-Instance-Passcode"] = passcode;
+				}
+				const response = await fetch(
+					`${API_BASE_URL}/${generatedPin}/status?token=${encodeURIComponent(burnToken)}`,
+					{ headers },
+				);
+				if (response.ok) {
+					const data = await response.json();
+					if (data.status === "burnt") {
+						setIsBurntByRecipient(true);
+					} else if (data.isRetrieved) {
+						setIsRetrievedByRecipient(true);
+					}
+				}
+			} catch {
+				// Ignore transient network errors during background status polling
+			}
+		};
+
+		const timerId = window.setInterval(pollStatus, 3000);
+		return () => window.clearInterval(timerId);
+	}, [generatedPin, burnToken, isBurntByRecipient]);
 
 	useEffect(() => {
 		if (!retrievedData || !retrievedExpiresAt) {
@@ -351,6 +409,8 @@ export function TransferHub({
 			setDropExpiresAt(
 				parseUtcExpiryMs(result.expiresAt, resolvedExpiryMinutes),
 			);
+			setIsRetrievedByRecipient(false);
+			setIsBurntByRecipient(false);
 			setCancelSuccessMsg(null);
 			setDropText("");
 			setFiles([]);
@@ -395,6 +455,8 @@ export function TransferHub({
 			setBurnToken(null);
 			setDropExpiresAt(null);
 			setDropRemainingSeconds(null);
+			setIsRetrievedByRecipient(false);
+			setIsBurntByRecipient(false);
 			setCancelSuccessMsg(
 				"Drop cancelled and permanently burnt from server.",
 			);
@@ -679,7 +741,67 @@ export function TransferHub({
 							animation: "fadeIn 0.3s ease-in",
 						}}
 					>
-						{generatedPin ? (
+						{isBurntByRecipient ? (
+							<Alert
+								severity="warning"
+								icon={false}
+								sx={{
+									"& .MuiAlert-message": {
+										width: "100%",
+										textAlign: "center",
+									},
+								}}
+							>
+								<Box
+									sx={{
+										display: "flex",
+										flexDirection: "column",
+										alignItems: "center",
+										py: 2,
+										gap: 1.5,
+									}}
+								>
+									<LocalFireDepartmentIcon
+										sx={{
+											fontSize: 56,
+											color: "error.main",
+										}}
+									/>
+									<Typography
+										variant="h5"
+										sx={{
+											fontWeight: "bold",
+											color: "error.main",
+										}}
+									>
+										Drop Burnt
+									</Typography>
+									<Typography
+										variant="body1"
+										color="text.secondary"
+										sx={{ maxWidth: 420 }}
+									>
+										The recipient has collected and burnt this drop from the server.
+									</Typography>
+									<Box sx={{ mt: 2 }}>
+										<Button
+											variant="outlined"
+											color="primary"
+											onClick={() => {
+												setGeneratedPin(null);
+												setBurnToken(null);
+												setDropExpiresAt(null);
+												setDropRemainingSeconds(null);
+												setIsRetrievedByRecipient(false);
+												setIsBurntByRecipient(false);
+											}}
+										>
+											Drop Another
+										</Button>
+									</Box>
+								</Box>
+							</Alert>
+						) : generatedPin ? (
 							<Alert
 								severity="success"
 								icon={false}
@@ -752,6 +874,8 @@ export function TransferHub({
 											mt: 1.5,
 											display: "flex",
 											justifyContent: "center",
+											gap: 1,
+											flexWrap: "wrap",
 										}}
 									>
 										<Chip
@@ -765,6 +889,15 @@ export function TransferHub({
 											}
 											variant="outlined"
 										/>
+										{isRetrievedByRecipient && (
+											<Chip
+												icon={<CheckIcon />}
+												label="Collected by recipient"
+												size="small"
+												color="info"
+												variant="outlined"
+											/>
+										)}
 									</Box>
 								)}
 								<Box
@@ -845,8 +978,11 @@ export function TransferHub({
 										color="success"
 										onClick={() => {
 											setGeneratedPin(null);
+											setBurnToken(null);
 											setDropExpiresAt(null);
 											setDropRemainingSeconds(null);
+											setIsRetrievedByRecipient(false);
+											setIsBurntByRecipient(false);
 										}}
 									>
 										Drop Another
@@ -956,6 +1092,54 @@ export function TransferHub({
 
 								{/* Selected Files List */}
 								{files.length > 0 && (
+									<Box sx={{ mb: 1.5 }}>
+										<Box
+											sx={{
+												display: "flex",
+												alignItems: "center",
+												justifyContent: "space-between",
+												px: 1,
+												py: 0.5,
+												mb: 1,
+												bgcolor: "background.default",
+												borderRadius: 1,
+											}}
+										>
+											<Typography
+												variant="body2"
+												color="text.secondary"
+												sx={{ fontWeight: 500 }}
+											>
+												{files.length}{" "}
+												{files.length === 1 ? "file" : "files"}{" "}
+												•{" "}
+												{formatBytes(
+													files.reduce(
+														(acc, f) => acc + f.size,
+														0,
+													),
+												)}{" "}
+												total
+											</Typography>
+											<Button
+												size="small"
+												color="inherit"
+												startIcon={
+													<DeleteSweepIcon fontSize="small" />
+												}
+												onClick={() => setFiles([])}
+												sx={{
+													textTransform: "none",
+													fontSize: "0.8rem",
+													color: "text.secondary",
+													"&:hover": {
+														color: "error.main",
+													},
+												}}
+											>
+												Clear all
+											</Button>
+										</Box>
 									<List
 										dense
 										sx={{
@@ -985,12 +1169,7 @@ export function TransferHub({
 												>
 													<ListItemAvatar>
 														{isImage ? (
-															<Avatar
-																src={URL.createObjectURL(
-																	file,
-																)}
-																variant="rounded"
-															/>
+															<StagedImageAvatar file={file} />
 														) : (
 															<Avatar
 																sx={{
@@ -1038,6 +1217,7 @@ export function TransferHub({
 											);
 										})}
 									</List>
+									</Box>
 								)}
 
 								{/* Ephemeral Expiry Duration Selector */}

@@ -38,7 +38,7 @@ describe("PasscodeLockModal", () => {
 		fireEvent.click(submitButton);
 
 		await waitFor(() => {
-			expect(globalThis.fetch).toHaveBeenCalledWith("/api/config/verify", expect.objectContaining({
+			expect(globalThis.fetch).toHaveBeenCalledWith("/api/v1/config/verify", expect.objectContaining({
 				method: "POST",
 				body: JSON.stringify({ passcode: "ValidKey123" }),
 			}));

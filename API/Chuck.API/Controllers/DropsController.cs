@@ -12,7 +12,7 @@ using Chuck.API.Filters;
 namespace Chuck.API.Controllers;
 
 [ApiController]
-[Route("api/drops")]
+[Route("api/v1/drops")]
 [EnableRateLimiting("StrictPolicy")]
 [ServiceFilter(typeof(InstancePasscodeFilter))]
 public class DropsController : ControllerBase
@@ -61,7 +61,7 @@ public class DropsController : ControllerBase
 			BurnToken = result.BurnToken
 		};
 
-		return Created($"/api/drops/{result.Pin}", response);
+		return Created($"/api/v1/drops/{result.Pin}", response);
 	}
 
 	/**
@@ -94,11 +94,11 @@ public class DropsController : ControllerBase
 				OriginalName = f.OriginalName,
 				SizeBytes = f.SizeBytes,
 				ContentType = f.ContentType,
-				DownloadUrl = $"/api/drops/{pin}/files/{f.Id}",
-				BurnUrl = $"/api/drops/{pin}/files/{f.Id}"
+				DownloadUrl = $"/api/v1/drops/{pin}/files/{f.Id}",
+				BurnUrl = $"/api/v1/drops/{pin}/files/{f.Id}"
 			}),
-			ZipUrl = $"/api/drops/{pin}/zip",
-			BurnUrl = $"/api/drops/{pin}",
+			ZipUrl = $"/api/v1/drops/{pin}/zip",
+			BurnUrl = $"/api/v1/drops/{pin}",
 			ExpiresAt = result.Payload.ExpiresAt
 		};
 
@@ -188,6 +188,40 @@ public class DropsController : ControllerBase
 				}
 			}
 		}
+	}
+
+	/**
+	 * <summary>
+	 * Queries the lifecycle and retrieval status of an active or recently burnt drop using its PIN and uploader burn token.
+	 * </summary>
+	 * <param name="pin">The 4-digit numeric retrieval PIN.</param>
+	 * <param name="token">The cryptographic burn token issued to the drop creator.</param>
+	 * <returns>A <see cref="DropStatusResponse"/> describing the current drop status.</returns>
+	 * <response code="200">Drop status resolved successfully.</response>
+	 * <response code="404">Drop not found or invalid burn token provided.</response>
+	 */
+	[HttpGet("{pin}/status")]
+	[EnableRateLimiting("GeneralPolicy")]
+	[ProducesResponseType(typeof(DropStatusResponse), StatusCodes.Status200OK)]
+	[ProducesResponseType(typeof(MessageResponse), StatusCodes.Status404NotFound)]
+	public IActionResult GetDropStatus(int pin, [FromQuery] string? token)
+	{
+		if (string.IsNullOrEmpty(token))
+		{
+			return NotFound(new MessageResponse { Message = "Drop not found or invalid burn token." });
+		}
+
+		var result = _orchestrator.GetDropStatus(pin, token);
+		if (!result.Success)
+		{
+			return NotFound(new MessageResponse { Message = result.Message });
+		}
+
+		return Ok(new DropStatusResponse
+		{
+			Status = result.Status,
+			IsRetrieved = result.IsRetrieved
+		});
 	}
 
 	/**

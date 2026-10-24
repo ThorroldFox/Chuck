@@ -453,4 +453,89 @@ public class DropsOrchestratorTests
 		Assert.True(result);
 		_dropService.Received(1).DeleteDrop(8888, "burn-token-123");
 	}
+
+	[Theory]
+	[InlineData(null)]
+	[InlineData("")]
+	[InlineData("   ")]
+	public void GetDropStatus_WhenTokenIsNullOrWhiteSpace_ReturnsFailed(string? token)
+	{
+		// Act
+		var result = _orchestrator.GetDropStatus(1234, token!);
+
+		// Assert
+		Assert.False(result.Success);
+		Assert.Equal("Drop not found or invalid burn token.", result.Message);
+	}
+
+	[Fact]
+	public void GetDropStatus_WhenDropExistsAndTokenMismatches_ReturnsFailed()
+	{
+		// Arrange
+		var payload = new DropPayload
+		{
+			Pin = 1234,
+			BurnToken = "correct-token"
+		};
+		_dropService.GetDrop(1234).Returns(payload);
+
+		// Act
+		var result = _orchestrator.GetDropStatus(1234, "wrong-token");
+
+		// Assert
+		Assert.False(result.Success);
+		Assert.Equal("Drop not found or invalid burn token.", result.Message);
+	}
+
+	[Fact]
+	public void GetDropStatus_WhenDropExistsAndTokenMatches_ReturnsActiveWithIsRetrieved()
+	{
+		// Arrange
+		var payload = new DropPayload
+		{
+			Pin = 1234,
+			BurnToken = "valid-token"
+		};
+		_dropService.GetDrop(1234).Returns(payload);
+		_dropService.IsDropRetrieved(1234).Returns(true);
+
+		// Act
+		var result = _orchestrator.GetDropStatus(1234, "valid-token");
+
+		// Assert
+		Assert.True(result.Success);
+		Assert.Equal("active", result.Status);
+		Assert.True(result.IsRetrieved);
+	}
+
+	[Fact]
+	public void GetDropStatus_WhenDropDoesNotExistAndIsBurnt_ReturnsBurnt()
+	{
+		// Arrange
+		_dropService.GetDrop(1234).Returns((DropPayload?)null);
+		_dropService.IsDropBurnt("burnt-token").Returns(true);
+
+		// Act
+		var result = _orchestrator.GetDropStatus(1234, "burnt-token");
+
+		// Assert
+		Assert.True(result.Success);
+		Assert.Equal("burnt", result.Status);
+		Assert.True(result.IsRetrieved);
+	}
+
+	[Fact]
+	public void GetDropStatus_WhenDropDoesNotExistAndNotBurnt_ReturnsFailed()
+	{
+		// Arrange
+		_dropService.GetDrop(1234).Returns((DropPayload?)null);
+		_dropService.IsDropBurnt("some-token").Returns(false);
+
+		// Act
+		var result = _orchestrator.GetDropStatus(1234, "some-token");
+
+		// Assert
+		Assert.False(result.Success);
+		Assert.Equal("Drop not found or has expired.", result.Message);
+	}
 }

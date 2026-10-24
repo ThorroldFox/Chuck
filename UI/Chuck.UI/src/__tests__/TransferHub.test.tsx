@@ -87,7 +87,7 @@ describe("TransferHub", () => {
 
 		await waitFor(() => {
 			expect(mockFetch).toHaveBeenCalledWith(
-				"/api/drops/1234",
+				"/api/v1/drops/1234",
 				expect.any(Object),
 			);
 			expect(screen.getByText("Payload Caught!")).toBeInTheDocument();
@@ -144,7 +144,7 @@ describe("TransferHub", () => {
 
 		await waitFor(() => {
 			expect(mockFetch).toHaveBeenCalledWith(
-				"/api/drops/5678",
+				"/api/v1/drops/5678",
 				expect.any(Object),
 			);
 			expect(screen.getByText("Payload Caught!")).toBeInTheDocument();
@@ -232,7 +232,7 @@ describe("TransferHub", () => {
 
 		await waitFor(() => {
 			expect(mockFetch).toHaveBeenCalledWith(
-				"/api/drops/7391",
+				"/api/v1/drops/7391",
 				expect.any(Object),
 			);
 			expect(screen.getByText("Payload Caught!")).toBeInTheDocument();
@@ -270,7 +270,7 @@ describe("TransferHub", () => {
 
 		await waitFor(() => {
 			expect(mockFetch).toHaveBeenCalledWith(
-				"/api/drops/6420",
+				"/api/v1/drops/6420",
 				expect.any(Object),
 			);
 			expect(
@@ -511,5 +511,135 @@ describe("TransferHub", () => {
 			expect(onNetworkRestricted).toHaveBeenCalledTimes(1);
 		});
 	});
-});
 
+	it("displays file count and aggregate size badge and clears staged files when Clear all is clicked", async () => {
+		const user = userEvent.setup();
+		render(<TransferHub />);
+
+		const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+		const file1 = new File(["test-content-1"], "doc1.txt", { type: "text/plain" });
+		const file2 = new File(["test-content-22"], "doc2.txt", { type: "text/plain" });
+
+		await user.upload(fileInput, [file1, file2]);
+
+		expect(screen.getByText(/2 files •/i)).toBeInTheDocument();
+		expect(screen.getByText("doc1.txt")).toBeInTheDocument();
+		expect(screen.getByText("doc2.txt")).toBeInTheDocument();
+
+		const clearAllBtn = screen.getByRole("button", { name: /clear all/i });
+		await user.click(clearAllBtn);
+
+		expect(screen.queryByText("doc1.txt")).not.toBeInTheDocument();
+		expect(screen.queryByText("doc2.txt")).not.toBeInTheDocument();
+		expect(screen.queryByText(/2 files •/i)).not.toBeInTheDocument();
+	});
+
+	it("updates uploader view to 'Drop Burnt' when drop is burnt from retrieval end", async () => {
+		const user = userEvent.setup();
+		const OriginalXHR = globalThis.XMLHttpRequest;
+		class MockXHR {
+			status = 200;
+			responseText = JSON.stringify({
+				pin: "8888",
+				burnToken: "burn-token-8888",
+				expiresInMinutes: 10,
+			});
+			upload = { onprogress: null as any };
+			onload: (() => void) | null = null;
+			open = vi.fn();
+			setRequestHeader = vi.fn();
+			send = vi.fn(() => {
+				if (this.onload) this.onload();
+			});
+		}
+		globalThis.XMLHttpRequest = MockXHR as any;
+
+		const mockFetch = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				status: "burnt",
+				isRetrieved: true,
+			}),
+		} as Response);
+		globalThis.fetch = mockFetch;
+
+		try {
+			render(<TransferHub />);
+
+			const memoInput = screen.getByPlaceholderText(/paste text here/i);
+			await user.type(memoInput, "Burnt drop status test");
+			await user.click(screen.getByRole("button", { name: /chuck it/i }));
+
+			await waitFor(() => {
+				expect(screen.getByText("8888")).toBeInTheDocument();
+			});
+
+			await waitFor(() => {
+				expect(mockFetch).toHaveBeenCalledWith(
+					expect.stringContaining("/api/v1/drops/8888/status?token=burn-token-8888"),
+					expect.any(Object),
+				);
+			}, { timeout: 4000 });
+
+			await waitFor(() => {
+				expect(screen.getByText("Drop Burnt")).toBeInTheDocument();
+				expect(
+					screen.getByText("The recipient has collected and burnt this drop from the server."),
+				).toBeInTheDocument();
+				expect(screen.getByRole("button", { name: /drop another/i })).toBeInTheDocument();
+			});
+		} finally {
+			globalThis.XMLHttpRequest = OriginalXHR;
+		}
+	});
+
+	it("displays 'Collected by recipient' badge when drop status reports isRetrieved", async () => {
+		const user = userEvent.setup();
+		const OriginalXHR = globalThis.XMLHttpRequest;
+		class MockXHR {
+			status = 200;
+			responseText = JSON.stringify({
+				pin: "9999",
+				burnToken: "burn-token-9999",
+				expiresInMinutes: 10,
+			});
+			upload = { onprogress: null as any };
+			onload: (() => void) | null = null;
+			open = vi.fn();
+			setRequestHeader = vi.fn();
+			send = vi.fn(() => {
+				if (this.onload) this.onload();
+			});
+		}
+		globalThis.XMLHttpRequest = MockXHR as any;
+
+		const mockFetch = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				status: "active",
+				isRetrieved: true,
+			}),
+		} as Response);
+		globalThis.fetch = mockFetch;
+
+		try {
+			render(<TransferHub />);
+
+			const memoInput = screen.getByPlaceholderText(/paste text here/i);
+			await user.type(memoInput, "Retrieved badge test");
+			await user.click(screen.getByRole("button", { name: /chuck it/i }));
+
+			await waitFor(() => {
+				expect(screen.getByText("9999")).toBeInTheDocument();
+			});
+
+			await waitFor(() => {
+				expect(screen.getByText("Collected by recipient")).toBeInTheDocument();
+			}, { timeout: 4000 });
+		} finally {
+			globalThis.XMLHttpRequest = OriginalXHR;
+		}
+	});
+});

@@ -45,7 +45,7 @@ export const PasscodeLockModal: React.FC<PasscodeLockModalProps> = ({
 		setError(null);
 
 		try {
-			const response = await fetch("/api/config/verify", {
+			const response = await fetch("/api/v1/config/verify", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ passcode: passcode.trim() }),

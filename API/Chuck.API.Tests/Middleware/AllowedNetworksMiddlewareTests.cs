@@ -31,7 +31,7 @@ public class AllowedNetworksMiddlewareTests
 	[Fact]
 	public async Task InvokeAsync_WhenClientIsInAllowedSubnet_PassesThrough()
 	{
-		var (nextCalled, context) = await InvokeAsync("192.168.1.0/24", "/api/drops", "192.168.1.20");
+		var (nextCalled, context) = await InvokeAsync("192.168.1.0/24", "/api/v1/drops", "192.168.1.20");
 
 		Assert.True(nextCalled);
 		Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
@@ -40,7 +40,7 @@ public class AllowedNetworksMiddlewareTests
 	[Fact]
 	public async Task InvokeAsync_WhenClientIsOutsideAllowedNetworks_Returns403WithNetworkRestrictedCode()
 	{
-		var (nextCalled, context) = await InvokeAsync("192.168.1.0/24", "/api/config", "203.0.113.50");
+		var (nextCalled, context) = await InvokeAsync("192.168.1.0/24", "/api/v1/config", "203.0.113.50");
 
 		Assert.False(nextCalled);
 		Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
@@ -54,7 +54,7 @@ public class AllowedNetworksMiddlewareTests
 	[Fact]
 	public async Task InvokeAsync_WhenClientAddressIsUnknown_Returns403()
 	{
-		var (nextCalled, context) = await InvokeAsync("192.168.1.0/24", "/api/config", null);
+		var (nextCalled, context) = await InvokeAsync("192.168.1.0/24", "/api/v1/config", null);
 
 		Assert.False(nextCalled);
 		Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
@@ -75,7 +75,7 @@ public class AllowedNetworksMiddlewareTests
 	[Fact]
 	public async Task InvokeAsync_AllowsIpv4MappedIpv6ClientsInsideAllowedSubnet()
 	{
-		var (nextCalled, _) = await InvokeAsync("10.0.0.0/8", "/api/drops/1234", "::ffff:10.1.2.3");
+		var (nextCalled, _) = await InvokeAsync("10.0.0.0/8", "/api/v1/drops/1234", "::ffff:10.1.2.3");
 
 		Assert.True(nextCalled);
 	}
@@ -84,7 +84,7 @@ public class AllowedNetworksMiddlewareTests
 	public async Task InvokeAsync_DoesNotImplicitlyExemptLoopback()
 	{
 		// A same-host reverse proxy that fails to forward client headers must not open the whole instance.
-		var (nextCalled, context) = await InvokeAsync("192.168.1.0/24", "/api/config", "127.0.0.1");
+		var (nextCalled, context) = await InvokeAsync("192.168.1.0/24", "/api/v1/config", "127.0.0.1");
 
 		Assert.False(nextCalled);
 		Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);

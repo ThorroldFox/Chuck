@@ -39,6 +39,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 EXPOSE 8080
 
+# Install curl for container health monitoring
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 # Copy the published app (which now includes the wwwroot folder) from Stage 2
 COPY --from=build-backend /app/publish .
 
@@ -47,5 +50,8 @@ RUN mkdir -p /app/app_data/drops
 
 # Override the appsettings so it uses the Docker directory instead of a local debug path
 ENV ChuckSettings__DiskStoragePath="/app/app_data/drops"
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["dotnet", "Chuck.API.dll"]

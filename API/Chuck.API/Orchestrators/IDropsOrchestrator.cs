@@ -26,6 +26,13 @@ public interface IDropsOrchestrator
 
 	/**
 	 * <summary>
+	 * Queries the current lifecycle and retrieval status of a drop using its PIN and uploader burn token.
+	 * </summary>
+	 */
+	DropStatusResult GetDropStatus(int pin, string token);
+
+	/**
+	 * <summary>
 	 * Resolves an individual physical file for chunked HTTP range streaming.
 	 * </summary>
 	 */

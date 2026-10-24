@@ -2,6 +2,14 @@
 
 All notable changes to **Chuck** are documented in this file.
 
+## [v1.0.7] - Steadfast Courier (24/10/2026)
+
+- Real-Time Uploader Lifecycle & Burnt Updates: The active upload screen now continuously tracks drop state in the background, displaying a "Collected by recipient" badge when retrieved and automatically transitioning to a prominent "Drop Burnt" notice once the recipient incinerates the payload from the server, cleanly resetting obsolete PINs and QR codes.
+- Inline Plain Text & Source Code Preview: Added an inline preview for plain text, log, markdown, JSON, CSV, configuration, and source code files (supporting over 40 formats including .txt, .log, .md, .json, .csv, .php, .cs, .py, .js, .ts, .sql, and .env up to 1 MB) featuring a one-click "Copy Text" button to quickly inspect and copy content without downloading files to disk.
+- Staged Files Summary & "Clear All": Added an aggregate file count and total payload size badge above staged uploads on the Drop tab, accompanied by a single-click "Clear all" button to easily reset or discard queued files and folder trees.
+- Native Docker Container Health Monitoring: Added a dedicated /health endpoint and configured container health checks in both the Dockerfile and docker-compose.yml, allowing Docker to automatically detect hung processes and restart the container.
+- Staged Thumbnail Memory Hygiene: Refactored image thumbnail rendering in the upload staging queue to automatically revoke blob object URLs, preventing browser memory leaks during drafting and countdown intervals.
+
 ## [v1.0.6] - Vigilant Courier (20/10/2026)
 
 - Inline Image Preview & One-Click Clipboard Copy: Added previews for retrieved images (PNG, JPEG, WebP, GIF, BMP, AVIF) with a dedicated "Copy Image" action, allowing screenshots to be viewed and copied straight to the clipboard without saving to the Downloads folder.

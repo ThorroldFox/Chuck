@@ -51,9 +51,10 @@ Chuck strictly enforces **British English (UK)** spelling across all project sur
 * **Exceptions:** External dependencies and framework identifiers (e.g. .NET Base Class Library `JsonSerializer`, CSS `center`, Material UI `color`) remain unaltered.
 
 ### 2. Indentation & Formatting
+* **Windows Line Endings (CRLF):** All source, test, configuration, and documentation files must strictly use Windows line endings (`\r\n`, `end_of_line = crlf`). Lone Unix line endings (`\n`) or mixed line endings are prohibited.
 * **Tab Characters:** All C#, TypeScript/React, and HTML files (`.cs`, `.ts`, `.tsx`, `.html`) must be indented using **tab characters (`\t`)** configured to a display width of 4 spaces (`indent_style = tab`, `tab_width = 4`). Spaces for indentation are prohibited.
 * **Trailing Newlines:** All source and documentation files must terminate with a trailing newline character (`insert_final_newline = true`).
-* Enforced project-wide via root `.editorconfig`.
+* Enforced project-wide via root `.editorconfig` and `.gitattributes`.
 
 ### 3. Layered Architectural Pattern
 The backend adheres strictly to the **Controller-Orchestrator-Service** pattern:

@@ -13,8 +13,8 @@ describe("RetrievedFileRow", () => {
 		originalName: "confidential-manifest.pdf",
 		sizeBytes: 1572864, // 1.5 MB
 		contentType: "application/pdf",
-		downloadUrl: "/api/drops/1234/files/test-guid-1",
-		burnUrl: "/api/drops/1234/files/test-guid-1",
+		downloadUrl: "/api/v1/drops/1234/files/test-guid-1",
+		burnUrl: "/api/v1/drops/1234/files/test-guid-1",
 	};
 
 	beforeEach(() => {
@@ -112,8 +112,8 @@ describe("RetrievedFileRow", () => {
 			originalName: "screenshot.png",
 			sizeBytes: 204800,
 			contentType: "image/png",
-			downloadUrl: "/api/drops/4321/files/img-guid-1",
-			burnUrl: "/api/drops/4321/files/img-guid-1",
+			downloadUrl: "/api/v1/drops/4321/files/img-guid-1",
+			burnUrl: "/api/v1/drops/4321/files/img-guid-1",
 		};
 
 		const originalCreateObjectURL = URL.createObjectURL;
@@ -392,6 +392,47 @@ describe("RetrievedFileRow", () => {
 			expect(
 				await within(dialog).findByRole("alert"),
 			).toHaveTextContent(/could not copy the image/i);
+		});
+	});
+
+	describe("text file preview", () => {
+		const textFile: RetrievedFileItem = {
+			id: "txt-guid-1",
+			originalName: "application.log",
+			sizeBytes: 1024,
+			contentType: "text/plain",
+			downloadUrl: "/api/v1/drops/9999/files/txt-guid-1",
+			burnUrl: "/api/v1/drops/9999/files/txt-guid-1",
+		};
+
+		it("renders preview button for text files and opens TextPreviewDialog", async () => {
+			const user = userEvent.setup();
+			const onBurnt = vi.fn();
+
+			globalThis.fetch = vi.fn().mockResolvedValue({
+				ok: true,
+				text: async () => "2026-10-22 [INFO] Server started successfully",
+			} as Response);
+
+			render(<RetrievedFileRow file={textFile} onBurnt={onBurnt} />);
+
+			const previewBtn = screen.getByRole("button", {
+				name: "Preview file",
+				hidden: true,
+			});
+			expect(previewBtn).toBeInTheDocument();
+
+			await user.click(previewBtn);
+
+			const dialog = await screen.findByRole("dialog");
+			expect(
+				within(dialog).getByText("application.log"),
+			).toBeInTheDocument();
+			expect(
+				await within(dialog).findByText(
+					"2026-10-22 [INFO] Server started successfully",
+				),
+			).toBeInTheDocument();
 		});
 	});
 });

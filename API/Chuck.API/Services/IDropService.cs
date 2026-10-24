@@ -19,6 +19,9 @@ public interface IDropService
 	void ExtendDropTtl(int pin);
 	bool DeleteFile(int pin, string fileId);
 	bool DeleteDrop(int pin, string? token = null);
+	bool IsDropBurnt(string token);
+	bool IsDropRetrieved(int pin);
+	void MarkDropRetrieved(int pin);
 	void ExecuteBootSweep();
 	string GetMetaSidecarPath(int pin);
 

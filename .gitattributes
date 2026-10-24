@@ -1,0 +1,41 @@
+# Auto-detect text files and normalise to Windows CRLF line endings
+* text=auto eol=crlf
+
+# Shell scripts require Unix LF to execute correctly in POSIX/Linux environments
+*.sh text eol=lf
+
+# Windows scripts strictly CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Source code and configuration files strictly CRLF
+*.cs text eol=crlf
+*.ts text eol=crlf
+*.tsx text eol=crlf
+*.html text eol=crlf
+*.json text eol=crlf
+*.md text eol=crlf
+*.txt text eol=crlf
+*.yml text eol=crlf
+*.yaml text eol=crlf
+*.http text eol=crlf
+*.slnx text eol=crlf
+*.csproj text eol=crlf
+.editorconfig text eol=crlf
+.gitignore text eol=crlf
+.gitattributes text eol=crlf
+
+# Binary assets
+*.tar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+*.dll binary
+*.exe binary
+*.zip binary

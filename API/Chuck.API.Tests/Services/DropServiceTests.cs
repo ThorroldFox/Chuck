@@ -428,5 +428,36 @@ public class DropServiceTests : IDisposable
 
 		Assert.False(service.HasInsufficientStorage(1));
 	}
-}
 
+	[Fact]
+	public async Task DeleteDrop_SetsDropBurntTombstone()
+	{
+		// Arrange
+		var service = CreateDropService();
+		var (pin, burnToken) = await service.CreateDropAsync(new DropRequest { TextPayload = "Test status" });
+
+		Assert.False(service.IsDropBurnt(burnToken));
+
+		// Act - recipient burns drop
+		var deleted = service.DeleteDrop(pin);
+
+		// Assert
+		Assert.True(deleted);
+		Assert.True(service.IsDropBurnt(burnToken));
+	}
+
+	[Fact]
+	public void MarkDropRetrieved_MarksDropAsRetrieved()
+	{
+		// Arrange
+		var service = CreateDropService();
+
+		Assert.False(service.IsDropRetrieved(5555));
+
+		// Act
+		service.MarkDropRetrieved(5555);
+
+		// Assert
+		Assert.True(service.IsDropRetrieved(5555));
+	}
+}

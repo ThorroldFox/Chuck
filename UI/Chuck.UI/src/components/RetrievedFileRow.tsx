@@ -24,7 +24,9 @@ import {
 	copyImageToClipboard,
 	isPreviewableImage,
 } from "../utils/imageUtils";
+import { isPreviewableText } from "../utils/textUtils";
 import { ImagePreviewDialog, type CopyStatus } from "./ImagePreviewDialog";
+import { TextPreviewDialog } from "./TextPreviewDialog";
 
 export interface RetrievedFileItem {
 	id: string;
@@ -50,15 +52,20 @@ export function RetrievedFileRow({ file, onBurnt }: RetrievedFileRowProps) {
 	const [isBurning, setIsBurning] = useState(false);
 	const [burnError, setBurnError] = useState<string | null>(null);
 	const [previewOpen, setPreviewOpen] = useState(false);
+	const [textPreviewOpen, setTextPreviewOpen] = useState(false);
 	const [isCopying, setIsCopying] = useState(false);
 	const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
 
 	const blobPromiseRef = useRef<Promise<Blob> | null>(null);
+	const textPromiseRef = useRef<Promise<string> | null>(null);
 	const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
 		null,
 	);
 
 	const isImage = isPreviewableImage(file.contentType, file.sizeBytes);
+	const isText =
+		!isImage &&
+		isPreviewableText(file.contentType, file.originalName, file.sizeBytes);
 	const canCopyImage = isImage && canCopyImageToClipboard();
 
 	useEffect(
@@ -92,6 +99,29 @@ export function RetrievedFileRow({ file, onBurnt }: RetrievedFileRowProps) {
 				});
 		}
 		return blobPromiseRef.current;
+	}, [file.downloadUrl]);
+
+	// Fetches the text file payload lazily once the preview dialog opens.
+	const loadText = useCallback((): Promise<string> => {
+		if (!textPromiseRef.current) {
+			const passcode = getStoredPasscode();
+			const headers: Record<string, string> = {};
+			if (passcode) {
+				headers["X-Instance-Passcode"] = passcode;
+			}
+			textPromiseRef.current = fetch(file.downloadUrl, { headers })
+				.then((response) => {
+					if (!response.ok) {
+						throw new Error("Failed to load text");
+					}
+					return response.text();
+				})
+				.catch((error) => {
+					textPromiseRef.current = null;
+					throw error;
+				});
+		}
+		return textPromiseRef.current;
 	}, [file.downloadUrl]);
 
 	const handleCopyImage = async () => {
@@ -166,6 +196,17 @@ export function RetrievedFileRow({ file, onBurnt }: RetrievedFileRowProps) {
 								size="small"
 								aria-label="Preview image"
 								onClick={() => setPreviewOpen(true)}
+							>
+								<VisibilityOutlinedIcon fontSize="small" />
+							</IconButton>
+						</Tooltip>
+					)}
+					{isText && (
+						<Tooltip title="Preview file">
+							<IconButton
+								size="small"
+								aria-label="Preview file"
+								onClick={() => setTextPreviewOpen(true)}
 							>
 								<VisibilityOutlinedIcon fontSize="small" />
 							</IconButton>
@@ -269,8 +310,12 @@ export function RetrievedFileRow({ file, onBurnt }: RetrievedFileRowProps) {
 					}
 					secondary={formatBytes(file.sizeBytes)}
 					sx={{
-						// Reserve room for the action buttons; images carry extra Preview / Copy icons
-						pr: isImage ? { xs: 23, sm: 28 } : 18,
+						// Reserve room for the action buttons; images carry extra Preview / Copy icons, text files carry Preview icon
+						pr: isImage
+							? { xs: 23, sm: 28 }
+							: isText
+								? { xs: 20, sm: 23 }
+								: 18,
 						cursor: "default",
 					}}
 				/>
@@ -286,6 +331,14 @@ export function RetrievedFileRow({ file, onBurnt }: RetrievedFileRowProps) {
 					copyStatus={copyStatus}
 					onCopy={handleCopyImage}
 					onClose={() => setPreviewOpen(false)}
+				/>
+			)}
+			{isText && (
+				<TextPreviewDialog
+					open={textPreviewOpen}
+					fileName={file.originalName}
+					loadText={loadText}
+					onClose={() => setTextPreviewOpen(false)}
 				/>
 			)}
 		</ListItem>

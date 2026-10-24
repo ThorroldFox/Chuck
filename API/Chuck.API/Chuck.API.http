@@ -5,31 +5,41 @@
 
 @passcode = SecretCode123
 
-### 0. Query Instance Configuration
+### 0. Internal Health Check Probe (Loopback Only)
+# Returns 200 "Healthy" when queried from local loopback (Docker healthcheck).
+# Non-loopback callers receive 404 to eliminate external I/O and abuse.
+GET {{Chuck.API_HostAddress}}/health
+
+### 0a. OpenAPI Specification Schema
+# Returns the machine-readable OpenAPI specification for the API.
+GET {{Chuck.API_HostAddress}}/openapi/v1.json
+Accept: application/json
+
+### 0b. Query Instance Configuration
 # Returns { "isPasscodeProtected": bool, "maxPayloadSizeBytes": long } so clients can enforce the instance's configured upload limit
 # (ChuckSettings__MaxPayloadSizeBytes) instead of assuming a hardcoded value.
 # If ChuckSettings__AllowedNetworks is configured and your client address is not covered, every /api route (this one included)
 # responds 403 { "code": "network_restricted", "message": "..." }.
-GET {{Chuck.API_HostAddress}}/api/config
+GET {{Chuck.API_HostAddress}}/api/v1/config
 Accept: application/json
 
-### 0a. Verify Instance Passcode (JSON Payload)
-POST {{Chuck.API_HostAddress}}/api/config/verify
+### 0c. Verify Instance Passcode (JSON Payload)
+POST {{Chuck.API_HostAddress}}/api/v1/config/verify
 Content-Type: application/json
 
 {
   "passcode": "{{passcode}}"
 }
 
-### 0b. Verify Instance Passcode (HTTP Header)
-POST {{Chuck.API_HostAddress}}/api/config/verify
+### 0d. Verify Instance Passcode (HTTP Header)
+POST {{Chuck.API_HostAddress}}/api/v1/config/verify
 X-Instance-Passcode: {{passcode}}
 
 ### 1. Create a Drop (Multipart: Text Payload, Expiry Duration & Attached File)
 # 201 Created           -> { pin, expiresInMinutes, expiresAt, burnToken }
 # 400 Bad Request       -> empty payload, text over 100,000 characters, files over ChuckSettings__MaxPayloadSizeBytes, or malware detected
 # 507 Insufficient Storage -> accepting the upload would leave less than ChuckSettings__MinFreeDiskSpaceBytes free on the storage volume (default 1 GB; 0 disables)
-POST {{Chuck.API_HostAddress}}/api/drops
+POST {{Chuck.API_HostAddress}}/api/v1/drops
 X-Instance-Passcode: {{passcode}}
 Content-Type: multipart/form-data; boundary=boundary
 
@@ -49,34 +59,40 @@ This is a test file payload transferred via Chuck.
 --boundary--
 
 ### 2. Retrieve Drop Metadata by PIN
-GET {{Chuck.API_HostAddress}}/api/drops/{{pin}}
+GET {{Chuck.API_HostAddress}}/api/v1/drops/{{pin}}
+X-Instance-Passcode: {{passcode}}
+Accept: application/json
+
+### 2a. Poll Drop Lifecycle Status (Uploader Status Tracking via Burn Token)
+# Returns { "status": "active" | "burnt", "isRetrieved": bool }
+GET {{Chuck.API_HostAddress}}/api/v1/drops/{{pin}}/status?token={{burnToken}}
 X-Instance-Passcode: {{passcode}}
 Accept: application/json
 
 ### 3. Download Individual File Stream
-GET {{Chuck.API_HostAddress}}/api/drops/{{pin}}/files/{{fileId}}
+GET {{Chuck.API_HostAddress}}/api/v1/drops/{{pin}}/files/{{fileId}}
 X-Instance-Passcode: {{passcode}}
 
 ### 4. Download All Files as an Uncompressed ZIP Archive
-GET {{Chuck.API_HostAddress}}/api/drops/{{pin}}/zip?token=dl_token_123
+GET {{Chuck.API_HostAddress}}/api/v1/drops/{{pin}}/zip?token=dl_token_123
 X-Instance-Passcode: {{passcode}}
 
 ### 5. Poll In-Flight ZIP Download Status
-GET {{Chuck.API_HostAddress}}/api/drops/status/dl_token_123
+GET {{Chuck.API_HostAddress}}/api/v1/drops/status/dl_token_123
 X-Instance-Passcode: {{passcode}}
 Accept: application/json
 
 ### 6. Burn Individual File
-DELETE {{Chuck.API_HostAddress}}/api/drops/{{pin}}/files/{{fileId}}
+DELETE {{Chuck.API_HostAddress}}/api/v1/drops/{{pin}}/files/{{fileId}}
 X-Instance-Passcode: {{passcode}}
 Accept: application/json
 
 ### 7. Cancel Drop (Pre-Retrieval Sender Revocation via Burn Token)
-DELETE {{Chuck.API_HostAddress}}/api/drops/{{pin}}?token={{burnToken}}
+DELETE {{Chuck.API_HostAddress}}/api/v1/drops/{{pin}}?token={{burnToken}}
 X-Instance-Passcode: {{passcode}}
 Accept: application/json
 
 ### 8. Burn Entire Drop (Recipient Atomic Obliteration)
-DELETE {{Chuck.API_HostAddress}}/api/drops/{{pin}}
+DELETE {{Chuck.API_HostAddress}}/api/v1/drops/{{pin}}
 X-Instance-Passcode: {{passcode}}
 Accept: application/json

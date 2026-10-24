@@ -281,6 +281,10 @@ public class DropService : IDropService
 				if (payload.Files.Count == 0 && string.IsNullOrWhiteSpace(payload.TextPayload))
 				{
 					DeleteMetaSidecar(pin);
+					if (!string.IsNullOrEmpty(payload.BurnToken))
+					{
+						_cache.Set($"drop_burnt_{payload.BurnToken}", true, TimeSpan.FromMinutes(10));
+					}
 					_cache.Remove(pin);
 				}
 				else
@@ -342,11 +346,32 @@ public class DropService : IDropService
 		// Delete the metadata sidecar
 		DeleteMetaSidecar(pin);
 
+		// Record ephemeral burnt tombstone for drop status polling
+		if (!string.IsNullOrEmpty(payload.BurnToken))
+		{
+			_cache.Set($"drop_burnt_{payload.BurnToken}", true, TimeSpan.FromMinutes(10));
+		}
+
 		// Evict from RAM cache
 		_cache.Remove(pin);
 
 		_logger.LogInformation("Drop {Pin} permanently deleted and burnt.", pin);
 		return true;
+	}
+
+	public bool IsDropBurnt(string token)
+	{
+		return !string.IsNullOrEmpty(token) && _cache.TryGetValue($"drop_burnt_{token}", out _);
+	}
+
+	public bool IsDropRetrieved(int pin)
+	{
+		return _cache.TryGetValue($"drop_retrieved_{pin}", out _);
+	}
+
+	public void MarkDropRetrieved(int pin)
+	{
+		_cache.Set($"drop_retrieved_{pin}", true, TimeSpan.FromMinutes(30));
 	}
 
 	public void ExecuteBootSweep()

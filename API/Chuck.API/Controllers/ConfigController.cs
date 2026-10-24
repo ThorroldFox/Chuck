@@ -12,7 +12,7 @@ namespace Chuck.API.Controllers;
  * </summary>
  */
 [ApiController]
-[Route("api/config")]
+[Route("api/v1/config")]
 [EnableRateLimiting("StrictPolicy")]
 public class ConfigController : ControllerBase
 {

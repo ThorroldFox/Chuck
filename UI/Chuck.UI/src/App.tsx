@@ -58,7 +58,7 @@ export default function App() {
 			setIsRetrying(true);
 		}
 		try {
-			const res = await fetch("/api/config");
+			const res = await fetch("/api/v1/config");
 			if (res.status === 429) {
 				setIsRateLimited(true);
 				setIsNetworkRestricted(false);

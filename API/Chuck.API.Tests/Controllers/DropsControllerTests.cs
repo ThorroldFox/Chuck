@@ -70,7 +70,7 @@ public class DropsControllerTests
 
 		// Assert
 		var created = Assert.IsType<CreatedResult>(result);
-		Assert.Equal("/api/drops/5678", created.Location);
+		Assert.Equal("/api/v1/drops/5678", created.Location);
 
 		var response = Assert.IsType<CreateDropResponse>(created.Value);
 		Assert.Equal(5678, response.Pin);
@@ -125,14 +125,14 @@ public class DropsControllerTests
 		var okResult = Assert.IsType<OkObjectResult>(result);
 		var response = Assert.IsType<DropMetadataResponse>(okResult.Value);
 		Assert.Equal("Decrypted text", response.Text);
-		Assert.Equal("/api/drops/1234/zip", response.ZipUrl);
-		Assert.Equal("/api/drops/1234", response.BurnUrl);
+		Assert.Equal("/api/v1/drops/1234/zip", response.ZipUrl);
+		Assert.Equal("/api/v1/drops/1234", response.BurnUrl);
 		Assert.Equal(expectedExpiry, response.ExpiresAt);
 
 		var file = Assert.Single(response.Files);
 		Assert.Equal("file-guid-1", file.Id);
 		Assert.Equal("archive.tar", file.OriginalName);
-		Assert.Equal("/api/drops/1234/files/file-guid-1", file.DownloadUrl);
+		Assert.Equal("/api/v1/drops/1234/files/file-guid-1", file.DownloadUrl);
 	}
 
 	[Fact]
@@ -270,5 +270,69 @@ public class DropsControllerTests
 		var okResult = Assert.IsType<OkObjectResult>(result);
 		var response = Assert.IsType<MessageResponse>(okResult.Value);
 		Assert.Equal("Drop successfully burnt.", response.Message);
+	}
+
+	[Theory]
+	[InlineData(null)]
+	[InlineData("")]
+	public void GetDropStatus_WhenTokenMissingOrEmpty_ReturnsNotFound(string? token)
+	{
+		// Act
+		var result = _controller.GetDropStatus(3333, token);
+
+		// Assert
+		var notFound = Assert.IsType<NotFoundObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(notFound.Value);
+		Assert.Equal("Drop not found or invalid burn token.", response.Message);
+	}
+
+	[Fact]
+	public void GetDropStatus_WhenOrchestratorFails_ReturnsNotFound()
+	{
+		// Arrange
+		_orchestrator.GetDropStatus(3333, "invalid-token")
+			.Returns(DropStatusResult.Failed("Drop not found or invalid burn token."));
+
+		// Act
+		var result = _controller.GetDropStatus(3333, "invalid-token");
+
+		// Assert
+		var notFound = Assert.IsType<NotFoundObjectResult>(result);
+		var response = Assert.IsType<MessageResponse>(notFound.Value);
+		Assert.Equal("Drop not found or invalid burn token.", response.Message);
+	}
+
+	[Fact]
+	public void GetDropStatus_WhenActive_ReturnsOkWithStatus()
+	{
+		// Arrange
+		_orchestrator.GetDropStatus(3333, "valid-token")
+			.Returns(DropStatusResult.Succeeded("active", isRetrieved: true));
+
+		// Act
+		var result = _controller.GetDropStatus(3333, "valid-token");
+
+		// Assert
+		var okResult = Assert.IsType<OkObjectResult>(result);
+		var response = Assert.IsType<DropStatusResponse>(okResult.Value);
+		Assert.Equal("active", response.Status);
+		Assert.True(response.IsRetrieved);
+	}
+
+	[Fact]
+	public void GetDropStatus_WhenBurnt_ReturnsOkWithBurntStatus()
+	{
+		// Arrange
+		_orchestrator.GetDropStatus(3333, "valid-token")
+			.Returns(DropStatusResult.Succeeded("burnt", isRetrieved: true));
+
+		// Act
+		var result = _controller.GetDropStatus(3333, "valid-token");
+
+		// Assert
+		var okResult = Assert.IsType<OkObjectResult>(result);
+		var response = Assert.IsType<DropStatusResponse>(okResult.Value);
+		Assert.Equal("burnt", response.Status);
+		Assert.True(response.IsRetrieved);
 	}
 }

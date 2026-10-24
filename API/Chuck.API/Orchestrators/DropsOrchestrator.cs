@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Chuck.API.Services;
 using Chuck.API.Models;
 using Chuck.API.Models.Results;
@@ -74,7 +76,38 @@ public class DropsOrchestrator : IDropsOrchestrator
 			return DropSummaryResult.Failed();
 		}
 
+		_dropService.MarkDropRetrieved(pin);
+
 		return DropSummaryResult.Succeeded(payload);
+	}
+
+	public DropStatusResult GetDropStatus(int pin, string token)
+	{
+		if (string.IsNullOrWhiteSpace(token))
+		{
+			return DropStatusResult.Failed("Drop not found or invalid burn token.");
+		}
+
+		var payload = _dropService.GetDrop(pin);
+		if (payload != null)
+		{
+			byte[] candidateBytes = Encoding.UTF8.GetBytes(token);
+			byte[] expectedBytes = Encoding.UTF8.GetBytes(payload.BurnToken);
+			if (!CryptographicOperations.FixedTimeEquals(candidateBytes, expectedBytes))
+			{
+				return DropStatusResult.Failed("Drop not found or invalid burn token.");
+			}
+
+			bool isRetrieved = _dropService.IsDropRetrieved(pin);
+			return DropStatusResult.Succeeded("active", isRetrieved);
+		}
+
+		if (_dropService.IsDropBurnt(token))
+		{
+			return DropStatusResult.Succeeded("burnt", isRetrieved: true);
+		}
+
+		return DropStatusResult.Failed("Drop not found or has expired.");
 	}
 
 	public FileDownloadResult GetFileForDownload(int pin, string fileId)

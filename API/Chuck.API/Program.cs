@@ -97,6 +97,9 @@ builder.Services.AddCors();
 // Add standard Web API Controllers
 builder.Services.AddControllers();
 
+builder.Services.AddOpenApi();
+builder.Services.AddHealthChecks();
+
 builder.Services.AddMemoryCache();
 
 // Register system services and dependencies
@@ -153,5 +156,12 @@ app.UseStaticFiles();  // Tells Kestrel to serve the files inside the wwwroot fo
 
 // Tells .NET to map the routes based on the [Route] attributes in our Controllers
 app.MapControllers();
+
+app.MapOpenApi();
+
+// Internal-only health check probe for Docker container monitoring; non-loopback callers receive 404 to prevent external I/O abuse.
+app.MapGet("/health", () => Results.Text("Healthy"))
+	.DisableRateLimiting()
+	.AddEndpointFilter<LoopbackOnlyFilter>();
 
 app.Run();

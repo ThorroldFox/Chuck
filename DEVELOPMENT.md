@@ -98,6 +98,17 @@ Frontend unit and component tests are powered by Vitest, jsdom, and React Testin
 
 ---
 
+## 📐 Code Quality & Formatting
+
+All code contributions must adhere to the formatting rules defined in the root [`.editorconfig`](.editorconfig) and [`.gitattributes`](.gitattributes):
+
+* **Line Endings:** Windows CRLF (`\r\n`) across all source, test, configuration, and markdown files.
+* **Indentation:** Tab characters (`\t`) with a 4-space tab stop (`indent_style = tab`, `tab_width = 4`) for all `.cs`, `.ts`, `.tsx`, and `.html` files. Spaces for indentation are strictly prohibited.
+* **Trailing Newlines:** All files must end with a single trailing newline (`insert_final_newline = true`).
+* **Spelling:** British English (UK) across all code identifiers, comments, and user-facing text (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+---
+
 ## 🐳 Building with Docker
 
 ### Option 1: Run Development Stack via Compose
